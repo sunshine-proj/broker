@@ -147,15 +147,15 @@ Phase 4 is delivered as four sub-phases, one provider each. Complete, test, and 
 
 ### Phase 4A — Twelve Data
 
-- [ ] Implement Twelve Data adapter.
-- [ ] Implement symbol search.
-- [ ] Implement latest price collection using batched requests.
-- [ ] Implement historical OHLCV collection.
-- [ ] Implement stock support.
-- [ ] Implement ETF support.
-- [ ] Implement forex support.
-- [ ] Add seed instruments sized to the Twelve Data budget.
-- [ ] Add provider tests.
+- [x] Implement Twelve Data adapter.
+- [x] Implement symbol search.
+- [x] Implement latest price collection using batched requests.
+- [x] Implement historical OHLCV collection.
+- [x] Implement stock support.
+- [x] Implement ETF support.
+- [x] Implement forex support.
+- [x] Add seed instruments sized to the Twelve Data budget.
+- [x] Add provider tests.
 
 ### Phase 4B — CoinGecko
 

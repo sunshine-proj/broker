@@ -12,7 +12,7 @@ An adapter does not implement any of these. It gets them by making every request
 | Timeout | Every request has a timeout (10 seconds by default). |
 | Retries | Timeouts, connection failures, HTTP 5xx and HTTP 429 are retried with exponential backoff. Other responses are not. |
 | Rate limits | Every attempt, including a retry, takes credits from the provider's rate limiter before it is sent. |
-| `Retry-After` | Honoured on HTTP 429. If the provider asks for a longer wait than `backoff_max_seconds`, the request fails instead of retrying early. |
+| HTTP 429 | Honours `Retry-After`. Without it, waits for the next period boundary of any limit marked `resets_on_boundary`. Either way the whole limiter is paused until then, so other requests to the provider wait too. If the wait is longer than `backoff_max_seconds`, the request fails instead of retrying early. |
 | Precision | JSON numbers are decoded as `Decimal`, never `float`. |
 | Errors | Failures are raised as `ProviderError` subclasses, with no credential or URL in the message. |
 
@@ -36,12 +36,14 @@ class ExampleProvider(Provider):
         return [Quote(...) for item in parsed.data]
 ```
 
-A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`.
+A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`. The first real adapter, [Twelve Data](twelve_data.md), is a fuller example.
+
+Add the module to the imports in `backend/app/providers/__init__.py`, which is what registers it.
 
 ### Rules
 
-1. **Implement only what the provider offers.** Override `fetch_quotes`, `fetch_candles` or `fetch_indicator` and list the matching `Capability`. Methods left alone raise `UnsupportedOperationError`.
-2. **Return normalized schemas only.** `Quote`, `Candle` and `IndicatorValue` from `app/schemas/normalized.py`. No provider-specific shape leaves the adapter.
+1. **Implement only what the provider offers.** Override `fetch_quotes`, `fetch_candles`, `fetch_indicator` or `search_symbols` and list the matching `Capability`. Methods left alone raise `UnsupportedOperationError`.
+2. **Return normalized schemas only.** `Quote`, `Candle`, `IndicatorValue` and `SymbolMatch` from `app/schemas/normalized.py`. No provider-specific shape leaves the adapter.
 3. **Model the provider's response with Pydantic and validate it** with `self._validate(Model, raw)`. A response that does not match becomes a `ProviderResponseError`. This includes error bodies sent with HTTP 200.
 4. **Parse values with the helpers in `app/providers/parsing.py`.**
    - `parse_decimal` for every number. It refuses floats.
@@ -85,7 +87,8 @@ auth = { type = "query", name = "apikey", env = "EXAMPLE_API_KEY" }
 ```
 
 - `base_url` must use `https`.
-- `rate_limits` must be the provider's documented quota for the plan in use. List every limit that applies.
+- `rate_limits` must be the provider's documented quota for the plan in use. List every limit that applies. Mark a limit `resets_on_boundary = true` when the provider restores it at the start of each period (on the minute, at midnight UTC).
+- `max_batch_size` caps the symbols per batched request. Set it to no more than the smallest per-period limit when each symbol costs a credit.
 - `auth.env` is the name of an environment variable, never the key. It must end in `_API_KEY` or `_TOKEN`.
 - Add the variable to `.env.example` (empty), to the `backend-environment` block in `docker-compose.yml`, and to the configuration table in the README.
 

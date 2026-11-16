@@ -1,7 +1,7 @@
 """Shared helpers for provider tests: a fake clock and a small example adapter."""
 
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -25,6 +25,10 @@ class FakeClock:
 
     def __call__(self) -> float:
         return self.now
+
+    def wall(self) -> datetime:
+        """Wall-clock time, moving with the clock: 2026-11-16 09:30:15 UTC at the start."""
+        return datetime(2026, 11, 16, 9, 30, 15, tzinfo=UTC) + timedelta(seconds=self.now - 1000)
 
     async def sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)
@@ -59,6 +63,7 @@ def make_client(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         sleep=clock.sleep,
         jitter=lambda: 1.0,
+        wall_clock=clock.wall,
     )
 
 

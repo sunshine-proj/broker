@@ -58,6 +58,15 @@ class RateLimiter:
         self._clock = clock
         self._sleep = sleep
         self._lock = asyncio.Lock()
+        self._paused_until = float("-inf")
+
+    def pause(self, seconds: float) -> None:
+        """Grant nothing for `seconds`: the provider has said its allowance is used up.
+
+        Our own count can be behind the provider's, for example after a restart
+        or when another process used the same key.
+        """
+        self._paused_until = max(self._paused_until, self._clock() + seconds)
 
     async def acquire(self, cost: int = 1) -> None:
         """Reserve `cost` request credits, waiting for capacity if the wait is short.
@@ -79,7 +88,7 @@ class RateLimiter:
             waited = 0.0
             while True:
                 now = self._clock()
-                wait = 0.0
+                wait = max(0.0, self._paused_until - now)
                 for window in self._windows:
                     window.expire(now)
                     wait = max(wait, window.wait_for(cost, now))

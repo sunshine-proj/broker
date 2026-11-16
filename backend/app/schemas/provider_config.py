@@ -1,6 +1,7 @@
 """Non-secret provider settings, stored in `provider.configuration`."""
 
 import re
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Self
 
@@ -22,6 +23,22 @@ class RatePeriod(StrEnum):
     def seconds(self) -> int:
         return _PERIOD_SECONDS[self]
 
+    def next_boundary(self, now: datetime) -> datetime:
+        """Start of the next period after `now`, counted in UTC."""
+        now = now.astimezone(UTC)
+        if self is RatePeriod.SECOND:
+            return now.replace(microsecond=0) + timedelta(seconds=1)
+        if self is RatePeriod.MINUTE:
+            return now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        if self is RatePeriod.HOUR:
+            return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if self is RatePeriod.DAY:
+            return midnight + timedelta(days=1)
+        if now.month == 12:
+            return midnight.replace(year=now.year + 1, month=1, day=1)
+        return midnight.replace(month=now.month + 1, day=1)
+
 
 _PERIOD_SECONDS = {
     RatePeriod.SECOND: 1,
@@ -38,10 +55,18 @@ class _ConfigModel(BaseModel):
 
 
 class RateLimit(_ConfigModel):
-    """At most `limit` request credits per `period`."""
+    """At most `limit` request credits per `period`.
+
+    Usage is always counted over a rolling window, which never allows more
+    than a provider's calendar window does.
+    """
 
     limit: int = Field(gt=0)
     period: RatePeriod
+    # The provider restores the whole allowance at the start of each period
+    # (in UTC), for example on the minute. After the provider answers HTTP 429
+    # without saying when to retry, requests wait for that boundary.
+    resets_on_boundary: bool = False
 
 
 class AuthType(StrEnum):

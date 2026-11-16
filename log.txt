@@ -154,6 +154,44 @@ Continuous integration is still unticked from Phase 1: the workflow has never ru
 
 
 
+Phase 4A (Twelve Data) is implemented and verified: all 9 roadmap tasks are ticked, 208 tests pass with Ruff clean, and data was collected live from Twelve Data with your key. Phase 4 as a whole isn't done until the other three providers (4B–4D) are in.
+
+Verified against the live API
+Quotes: all 15 instruments (7 stocks, 3 ETFs, 5 forex pairs) were collected and stored. Stocks were stored as traded prices in USD and forex as indicative rates in the pair's quote currency (JPY, CHF, GBP, USD).
+Candles: 10 days of daily candles were stored for all 15 instruments, 95 in total. The day still in progress was correctly left out.
+Deduplication: a second run wrote only what was new. Stock quotes and existing candles were recognised as unchanged.
+Symbol search: works from the command line.
+Credits: testing used about 80 of today's 800.
+A problem the live run caught
+The first live candle run lost AMZN to an HTTP 429 even though our rate limiter had allowed the request.
+
+Cause: our limiter counts usage in memory, so each new process starts from zero, while Twelve Data still counted the previous run's credits for that minute.
+Why retrying didn't help: Twelve Data restores credits only at the start of each calendar minute, and a rejected request still counts. Retries 11 and 16 seconds later were rejected too.
+Fix: a 429 now pauses all requests to that provider until its allowance resets. The reset time comes from Retry-After if given, otherwise from the minute or day boundary marked in the seed file with resets_on_boundary.
+Result: re-running the same back-to-back scenario got one 429, waited 58 seconds, and completed with nothing lost.
+What was added
+Adapter: twelve_data.py supports quotes in batches of up to 8, paged candles, and symbol search. It sends the key in a header, never in the URL.
+Collection: collection.py fetches, validates and stores. Until the scheduler arrives in Phase 5 it runs from the command line:
+
+docker compose run --rm migrate python -m app.cli collect quotes twelve_data
+docker compose run --rm migrate python -m app.cli collect candles twelve_data --interval 1day --days 30
+Seed: seed.toml now has Twelve Data's free-plan limits and the 15 default instruments, which use 740 of 800 daily credits when polled as the PRD plans.
+Test fixtures: ten real API responses, recorded today with no key in them, under backend/tests/fixtures/twelve_data/.
+Docs: docs/providers/twelve_data.md covers the endpoints, limits, errors and licensing; the README, architecture doc and roadmap are updated.
+Decisions I made
+Candles are stored unadjusted. Stored rows never change, and adjusted history is rewritten by every later split or dividend.
+Weekend forex bars are kept. Twelve Data returns small Saturday and Sunday daily bars for forex; they are stored as received.
+Data is labelled real-time. That's what Twelve Data's pricing page states for the Basic plan.
+I used your variable name TWELVEDATA_API_KEY from .env.example.
+Decision for you: licensing
+Twelve Data's pricing describes the free Basic plan as "internal non-display usage only". Whether a personal Grafana dashboard counts as display isn't clear from what I read, and it matters for Phase 7. I'd check their terms before building dashboards on this data. It's recorded as an open question in the provider doc.
+
+Next is Phase 4B (CoinGecko). Its free Demo plan needs its own API key; if you add one to .env, I can check the adapter against the live API as I did here.
+
+
+
+
+===========================================
 
 
 

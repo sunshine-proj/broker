@@ -402,6 +402,11 @@ def test_shipped_seed_configures_twelve_data_within_its_budget(settings: Setting
     limits = {limit.period.value: limit.limit for limit in config.rate_limits}
 
     assert limits == {"minute": 8, "day": 800}
+    # Twelve Data restores credits on the minute and at midnight UTC.
+    assert all(limit.resets_on_boundary for limit in config.rate_limits)
+    # A rate-limited request must be able to wait out the rest of the minute.
+    assert config.backoff_max_seconds > 61
+    assert config.rate_limit_max_wait_seconds > 61
     assert config.max_batch_size is not None and config.max_batch_size <= limits["minute"]
     assert config.auth.env == "TWELVEDATA_API_KEY"
 

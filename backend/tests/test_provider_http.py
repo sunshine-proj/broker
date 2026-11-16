@@ -303,3 +303,75 @@ def test_httpx_request_logging_is_silenced() -> None:
 
 def test_credential_is_masked_in_repr() -> None:
     assert SECRET not in repr(SecretStr(SECRET))
+
+
+MINUTE_RESET = [{"limit": 8, "period": "minute", "resets_on_boundary": True}]
+
+
+async def test_rate_limited_waits_for_the_providers_next_minute() -> None:
+    # The fake wall clock starts at 09:30:15; the allowance returns at 09:31:00.
+    clock = FakeClock()
+    recorder = Recorder(httpx.Response(429), ok())
+    client = make_client(
+        recorder,
+        clock=clock,
+        backoff_base_seconds=1,
+        backoff_max_seconds=65,
+        rate_limits=MINUTE_RESET,
+    )
+
+    await client.get_json("/quotes")
+
+    assert clock.sleeps == [46]
+    assert len(recorder.requests) == 2
+
+
+async def test_after_a_rate_limit_other_requests_wait_too() -> None:
+    clock = FakeClock()
+    recorder = Recorder(httpx.Response(429), ok())
+    client = make_client(
+        recorder,
+        clock=clock,
+        max_retries=0,
+        rate_limit_max_wait_seconds=65,
+        rate_limits=MINUTE_RESET,
+    )
+
+    with pytest.raises(ProviderRateLimitedError):
+        await client.get_json("/quotes", {"symbol": "AAPL"})
+    await client.get_json("/quotes", {"symbol": "MSFT"})
+
+    # The second request was not sent until the provider's minute had turned.
+    assert clock.sleeps == [46]
+    assert [r.url.params["symbol"] for r in recorder.requests] == ["AAPL", "MSFT"]
+
+
+async def test_exhausted_daily_allowance_is_not_retried_and_stops_further_requests() -> None:
+    clock = FakeClock()
+    recorder = Recorder(httpx.Response(429))
+    client = make_client(
+        recorder,
+        clock=clock,
+        backoff_max_seconds=65,
+        rate_limits=[{"limit": 800, "period": "day", "resets_on_boundary": True}],
+    )
+
+    with pytest.raises(ProviderRateLimitedError) as raised:
+        await client.get_json("/quotes")
+    with pytest.raises(RateBudgetExceededError):
+        await client.get_json("/quotes")
+
+    # From 09:30:15 to midnight UTC, plus the one-second margin.
+    assert raised.value.retry_after == pytest.approx(14 * 3600 + 29 * 60 + 45 + 1)
+    assert len(recorder.requests) == 1
+    assert clock.sleeps == []
+
+
+async def test_retry_after_header_takes_precedence_over_the_boundary() -> None:
+    clock = FakeClock()
+    recorder = Recorder(httpx.Response(429, headers={"Retry-After": "5"}), ok())
+    client = make_client(recorder, clock=clock, backoff_base_seconds=1, rate_limits=MINUTE_RESET)
+
+    await client.get_json("/quotes")
+
+    assert clock.sleeps == [5]

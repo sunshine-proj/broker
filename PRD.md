@@ -332,7 +332,7 @@ Each provider has a configured quota (per minute, per day, or per month, as the 
 - Requests that fetch several instruments in one call are preferred wherever the provider supports them.
 - A request that would have to wait longer than a configured maximum for capacity is refused, not queued. An exhausted daily or monthly quota therefore fails fast.
 
-The runtime limiter counts usage in memory, so its counts restart from zero when the backend restarts. The startup check is what keeps planned usage inside daily and monthly quotas; the limiter guards against bursts, retries and manual triggers on top of it.
+The runtime limiter counts usage in memory, so its counts restart from zero when the backend restarts. When the provider nevertheless answers HTTP 429, all requests to that provider pause until its allowance is expected back. The startup check is what keeps planned usage inside daily and monthly quotas; the limiter guards against bursts, retries and manual triggers on top of it.
 
 ## 6. Non-Functional Requirements
 

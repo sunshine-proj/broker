@@ -119,3 +119,36 @@ async def test_no_limits_means_no_waiting() -> None:
         await rate_limiter.acquire()
 
     assert clock.sleeps == []
+
+
+async def test_pause_holds_back_every_request() -> None:
+    clock = FakeClock()
+    rate_limiter = limiter(clock, (100, "minute"))
+
+    rate_limiter.pause(45)
+    await rate_limiter.acquire()
+    await rate_limiter.acquire()
+
+    assert clock.sleeps == [45]
+
+
+async def test_pause_longer_than_the_maximum_wait_refuses() -> None:
+    clock = FakeClock()
+    rate_limiter = limiter(clock, max_wait=60)
+
+    rate_limiter.pause(3600)
+
+    with pytest.raises(RateBudgetExceededError):
+        await rate_limiter.acquire()
+    assert clock.sleeps == []
+
+
+async def test_a_shorter_pause_does_not_shorten_a_longer_one() -> None:
+    clock = FakeClock()
+    rate_limiter = limiter(clock)
+
+    rate_limiter.pause(30)
+    rate_limiter.pause(10)
+    await rate_limiter.acquire()
+
+    assert clock.sleeps == [30]

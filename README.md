@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 3 are complete. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. The provider framework (HTTP client, retries, rate limiting, validation, ingestion, health) is in place, but no real provider is integrated yet, so no data is collected. The data endpoints and dashboards are not implemented yet. See [ROADMAP.md](ROADMAP.md) for progress; the sections below marked *planned* describe the target.
+**Status:** Phases 0 to 3 and Phase 4A are complete. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Twelve Data is integrated: stock, ETF and forex quotes and candles can be collected from the command line. Scheduled collection, the data endpoints and dashboards are not implemented yet. See [ROADMAP.md](ROADMAP.md) for progress; the sections below marked *planned* describe the target.
 
 Collect financial data from multiple providers, normalize it, store historical observations, and visualize everything through Grafana.
 
@@ -253,12 +253,13 @@ Application configuration is provided through environment variables, read from `
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
 | `LOG_FORMAT` | `json` | `json` (one object per line) or `text` |
 | `SEED_FILE` | `backend/seed.toml` | Seed file to apply; in Docker, a path inside the backend image |
+| `TWELVEDATA_API_KEY` | (empty) | [Twelve Data](https://twelvedata.com/pricing) API key. The free Basic plan is enough for the default instruments. Without it, Twelve Data collection fails and is reported as a provider failure. |
 | `GRAFANA_ADMIN_USER` | `admin` | Grafana administrator user |
 | `GRAFANA_ADMIN_PASSWORD` | `change_me` | Grafana administrator password (required) |
 
 Database and Grafana credentials are applied when their volumes are first created; changing them later in `.env` does not alter an existing volume.
 
-Provider API keys and the administrator key (`ADMIN_API_KEY`) will be added to `.env.example` in the phases that introduce them. A provider's timeouts, retries, rate limits and the name of its key variable are set in `backend/seed.toml`; adding a provider is described in [docs/providers/README.md](docs/providers/README.md). Credentials are read from the environment only and are never stored in the database.
+Further provider API keys and the administrator key (`ADMIN_API_KEY`) will be added to `.env.example` in the phases that introduce them. A provider's timeouts, retries, rate limits and the name of its key variable are set in `backend/seed.toml`; adding a provider is described in [docs/providers/README.md](docs/providers/README.md). Credentials are read from the environment only and are never stored in the database.
 
 Never commit API credentials or production secrets.
 
@@ -273,7 +274,22 @@ What the platform tracks is defined in [backend/seed.toml](backend/seed.toml): e
 
 After editing the file, rebuild and restart: `docker compose up -d --build`.
 
-The file currently lists two exchanges only. Providers and instruments are added as each provider is integrated (Phase 4).
+The file currently tracks 7 US stocks, 3 ETFs and 5 forex pairs through Twelve Data, sized to its free plan. Other providers are added in later sub-phases of Phase 4. To find the symbol a provider uses:
+
+```bash
+docker compose run --rm migrate python -m app.cli search twelve_data "apple"
+```
+
+## Collecting Data
+
+Scheduled collection arrives in Phase 5. Until then, collect on demand:
+
+```bash
+docker compose run --rm migrate python -m app.cli collect quotes twelve_data
+docker compose run --rm migrate python -m app.cli collect candles twelve_data --interval 1day --days 30
+```
+
+Each run uses provider credits: 15 for quotes or candles of the default instruments on Twelve Data. The free plan allows 8 a minute, so a run takes about two minutes. Provider limits and licensing are documented in [docs/providers/](docs/providers/).
 
 ## Development Roadmap
 

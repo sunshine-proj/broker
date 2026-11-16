@@ -1,6 +1,6 @@
 # Backend Architecture
 
-This document describes the backend as it is built today (through Phase 3). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
+This document describes the backend as it is built today (through Phase 4A). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
 
 ## Request Flow
 
@@ -39,7 +39,9 @@ uvicorn  ->  FastAPI app (app/main.py: create_app)
 | `app/providers/` | The provider framework: adapter base class, shared HTTP client, rate limiter, errors, parsing helpers, factory. |
 | `app/services/ingestion.py`, `validation.py` | Validates normalized provider data and stores it. |
 | `app/services/provider_health.py` | Records provider health and contains provider failures. |
-| `app/cli.py` | Administrative commands, currently `seed`. |
+| `app/services/collection.py` | One collection run for one provider: fetch, validate, store. |
+| `app/providers/twelve_data.py` | Twelve Data adapter. |
+| `app/cli.py` | Administrative commands: `seed`, `search`, `collect`. |
 | `migrations/` | Alembic environment and revisions. |
 
 ## Application Factory
@@ -135,7 +137,7 @@ Time-series reads take `start` and `end`, return rows with `start <= time < end`
 
 ## Provider Framework
 
-No real provider is integrated yet; this is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md).
+This is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md). Integrated so far: [Twelve Data](providers/twelve_data.md).
 
 ```text
 ProviderFactory.build(provider row)
@@ -180,6 +182,7 @@ Each provider has one `RateLimiter`, owned by the `ProviderFactory` and shared b
 - A request that does not fit waits, if capacity frees within `rate_limit_max_wait_seconds`; callers are served in order.
 - Otherwise it is refused with `RateBudgetExceededError`. An exhausted daily or monthly quota fails fast instead of blocking.
 - Usage is counted in memory and starts from zero after a restart. Keep one factory per process.
+- Because our count can be behind the provider's (after a restart, or when another process uses the same key), an HTTP 429 pauses the limiter until the provider's allowance is expected back: the `Retry-After` time, or the next period boundary of a limit marked `resets_on_boundary`.
 
 ### Ingestion
 
@@ -203,6 +206,24 @@ It returns an `IngestionResult` with counts of received, written, unchanged, con
 | Any other exception | Not caught: it is a bug, not a provider failure. |
 
 Because a provider error never leaves `guard`, one provider's failure cannot stop another provider's collection.
+
+## Collection
+
+`CollectionService` runs one collection for one provider: it takes the symbols of the provider's enabled mappings, calls the adapter inside `ProviderHealthService.guard`, and passes the result to ingestion.
+
+- `collect_quotes` fetches every symbol in one call; the adapter splits it into batches.
+- `collect_candles` fetches symbol by symbol, so one failing symbol does not stop the rest.
+- A missing credential or other configuration problem is recorded as a provider failure, like any other.
+
+Scheduling and execution history arrive in Phase 5. Until then collection runs from the command line:
+
+```bash
+python -m app.cli collect quotes twelve_data
+python -m app.cli collect candles twelve_data --interval 1day --days 30
+python -m app.cli search twelve_data "vanguard total"
+```
+
+`collect` exits with 0 on success, 1 if it could not run, and 2 if a provider call failed. The failure is logged and recorded in `provider_health` either way.
 
 ## Seed File
 

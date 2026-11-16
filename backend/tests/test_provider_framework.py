@@ -34,7 +34,7 @@ from app.providers.parsing import (
 from app.repositories.interfaces import RevisionWriteResult, WriteResult
 from app.schemas.market_data import EconomicObservationIn, MarketObservationIn, OHLCVIn
 from app.schemas.normalized import Candle, IndicatorValue, Quote
-from app.schemas.provider_config import ProviderSettings
+from app.schemas.provider_config import ProviderSettings, RatePeriod
 from app.services.ingestion import IngestionService
 from app.services.provider_health import DOWN_AFTER_FAILURES, ProviderHealthService
 from app.services.validation import validate_candle, validate_indicator_value, validate_quote
@@ -541,3 +541,21 @@ async def test_guard_does_not_hide_bugs() -> None:
 
     with pytest.raises(ZeroDivisionError):
         await service.guard(PROVIDER_ID, operation)
+
+
+@pytest.mark.parametrize(
+    ("period", "now", "boundary"),
+    [
+        ("second", "2026-11-16T09:30:15.250000+00:00", "2026-11-16T09:30:16+00:00"),
+        ("minute", "2026-11-16T09:30:15+00:00", "2026-11-16T09:31:00+00:00"),
+        ("minute", "2026-11-16T09:30:00+00:00", "2026-11-16T09:31:00+00:00"),
+        ("hour", "2026-11-16T23:30:15+00:00", "2026-11-17T00:00:00+00:00"),
+        ("day", "2026-11-16T10:30:15+01:00", "2026-11-17T00:00:00+00:00"),
+        ("month", "2026-11-16T09:30:15+00:00", "2026-12-01T00:00:00+00:00"),
+        ("month", "2026-12-31T23:59:59+00:00", "2027-01-01T00:00:00+00:00"),
+    ],
+)
+def test_next_period_boundary_is_counted_in_utc(period: str, now: str, boundary: str) -> None:
+    result = RatePeriod(period).next_boundary(datetime.fromisoformat(now))
+
+    assert result == datetime.fromisoformat(boundary)

@@ -3,6 +3,9 @@
 Applies, for every request: authentication, the provider's rate limiter, a
 timeout, and retries with exponential backoff for transient failures. Each
 attempt, including a retry, takes credits from the rate limiter.
+
+When the provider answers HTTP 429, the whole limiter is paused until the
+provider's allowance is expected back, so no other request is wasted on it.
 """
 
 import asyncio
@@ -32,8 +35,16 @@ from app.schemas.provider_config import AuthType, ProviderSettings
 logger = logging.getLogger(__name__)
 
 
+# Extra wait past a provider's reset boundary, for clock differences.
+_BOUNDARY_MARGIN_SECONDS = 1.0
+
+
 def _default_jitter() -> float:
     return random.uniform(0.5, 1.0)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class ProviderHttpClient:
@@ -48,6 +59,7 @@ class ProviderHttpClient:
         http: httpx.AsyncClient,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         jitter: Callable[[], float] = _default_jitter,
+        wall_clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         if not base_url.startswith("https://"):
             raise ProviderConfigurationError(provider, "base_url must use https")
@@ -64,6 +76,7 @@ class ProviderHttpClient:
         self._http = http
         self._sleep = sleep
         self._jitter = jitter
+        self._wall_clock = wall_clock
 
     async def get_json(
         self, path: str, params: Mapping[str, Any] | None = None, *, cost: int = 1
@@ -96,6 +109,11 @@ class ProviderHttpClient:
                 if failure is None:
                     return self._decode(response)
                 error = failure
+
+            if isinstance(error, ProviderRateLimitedError):
+                error.retry_after = self._reset_in(error)
+                if error.retry_after is not None:
+                    self._limiter.pause(error.retry_after)
 
             delay = self._retry_delay(error, attempt)
             if delay is None or attempt == attempts - 1:
@@ -153,6 +171,20 @@ class ProviderHttpClient:
             return json.loads(response.text, parse_float=Decimal)
         except ValueError as exc:
             raise ProviderResponseError(self.provider, "response body is not valid JSON") from exc
+
+    def _reset_in(self, error: ProviderRateLimitedError) -> float | None:
+        """Seconds until the provider's allowance is expected back, if that can be known."""
+        if error.retry_after is not None:
+            return error.retry_after
+        now = self._wall_clock()
+        boundaries = [
+            limit.period.next_boundary(now)
+            for limit in self._settings.rate_limits
+            if limit.resets_on_boundary
+        ]
+        if not boundaries:
+            return None
+        return (min(boundaries) - now).total_seconds() + _BOUNDARY_MARGIN_SECONDS
 
     def _retry_delay(self, error: ProviderError, attempt: int) -> float | None:
         """Seconds to wait before retrying, or None if the error must not be retried."""
