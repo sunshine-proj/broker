@@ -167,10 +167,18 @@ class TwelveDataProvider(Provider):
         parsed = self._validate(_Quote, item)
 
         if parsed.currency is not None:
-            observation_type, currency, kind = ObservationType.PRICE, parsed.currency, QuoteKind.TRADED
+            observation_type, currency, kind = (
+                ObservationType.PRICE,
+                parsed.currency,
+                QuoteKind.TRADED,
+            )
         elif (pair_currency := _quote_currency(symbol)) is not None:
             # A forex rate is an aggregated quote, not an executable price.
-            observation_type, currency, kind = ObservationType.RATE, pair_currency, QuoteKind.INDICATIVE
+            observation_type, currency, kind = (
+                ObservationType.RATE,
+                pair_currency,
+                QuoteKind.INDICATIVE,
+            )
         else:
             logger.warning(
                 "Quote has no currency and is not a currency pair",
