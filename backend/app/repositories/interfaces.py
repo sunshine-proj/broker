@@ -8,7 +8,7 @@ owns the transaction.
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any, Protocol
 
 from app.models import (
@@ -22,7 +22,13 @@ from app.models import (
     Provider,
     ProviderHealth,
 )
-from app.models.enums import AssetType, CandleInterval, IndicatorFrequency, ObservationType
+from app.models.enums import (
+    AssetType,
+    CandleInterval,
+    IndicatorFrequency,
+    JobKind,
+    ObservationType,
+)
 from app.schemas.market_data import EconomicObservationIn, MarketObservationIn, OHLCVIn
 
 
@@ -72,7 +78,14 @@ class ProviderHealthRepository(Protocol):
 
 class InstrumentRepository(Protocol):
     async def upsert_exchange(
-        self, *, code: str, name: str, country: str | None, timezone: str
+        self,
+        *,
+        code: str,
+        name: str,
+        country: str | None,
+        timezone: str,
+        trading_open: time | None = None,
+        trading_close: time | None = None,
     ) -> uuid.UUID: ...
 
     async def get_exchange_by_code(self, code: str) -> Exchange | None: ...
@@ -201,3 +214,21 @@ class EconomicDataRepository(Protocol):
         limit: int = 1000,
         offset: int = 0,
     ) -> Sequence[EconomicObservation]: ...
+
+
+class CollectionJobRepository(Protocol):
+    async def upsert(
+        self,
+        *,
+        name: str,
+        provider_id: uuid.UUID,
+        kind: JobKind,
+        interval_minutes: int | None,
+        daily_at: time | None,
+        market_hours_only: bool,
+        retry_minutes: int | None,
+        settings: dict[str, Any],
+        enabled: bool,
+    ) -> uuid.UUID: ...
+
+    async def disable_others(self, names: Sequence[str]) -> int: ...

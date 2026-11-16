@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import dotenv_values
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -34,8 +34,24 @@ class Settings(BaseSettings):
     postgres_test_db: str = "marketdata_test"
     database_connect_timeout_seconds: float = 5.0
 
-    # Instruments, provider mappings and indicators to track (PRD FR-004).
+    # Instruments, provider mappings, indicators and jobs to track (PRD FR-004).
     seed_file: Path = _BACKEND_DIR / "seed.toml"
+
+    # Run the collection jobs on their schedules in this process. Enable it in
+    # exactly one process per deployment.
+    scheduler_enabled: bool = False
+    # Required in the X-API-Key header to trigger a job manually through the
+    # API. Manual triggers through the API are disabled while it is unset.
+    admin_api_key: SecretStr | None = None
+
+    @field_validator("admin_api_key", mode="before")
+    @classmethod
+    def _blank_key_is_unset(cls, value: object) -> object:
+        # Docker Compose passes an unset variable as an empty string. An empty
+        # key must disable the trigger, not become a key that anyone can send.
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
 
     def database_url(self, database: str | None = None) -> URL:
         """SQLAlchemy URL for the application database, or for `database` if given."""

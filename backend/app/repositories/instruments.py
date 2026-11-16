@@ -1,5 +1,7 @@
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import time
 from typing import Any
 
 import sqlalchemy as sa
@@ -10,14 +12,38 @@ from app.models import Exchange, Instrument, InstrumentProviderMapping
 from app.models.enums import AssetType
 
 
+@dataclass(frozen=True)
+class TrackedSymbol:
+    """A provider symbol of an enabled instrument, with its exchange's session."""
+
+    provider_symbol: str
+    asset_type: AssetType
+    exchange_timezone: str | None
+    trading_open: time | None
+    trading_close: time | None
+
+
 class SqlInstrumentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
     async def upsert_exchange(
-        self, *, code: str, name: str, country: str | None, timezone: str
+        self,
+        *,
+        code: str,
+        name: str,
+        country: str | None,
+        timezone: str,
+        trading_open: time | None = None,
+        trading_close: time | None = None,
     ) -> uuid.UUID:
-        values = {"name": name, "country": country, "timezone": timezone}
+        values = {
+            "name": name,
+            "country": country,
+            "timezone": timezone,
+            "trading_open": trading_open,
+            "trading_close": trading_close,
+        }
         statement = (
             insert(Exchange)
             .values(code=code, **values)
@@ -134,3 +160,28 @@ class SqlInstrumentRepository:
             )
         )
         return {symbol: instrument for symbol, instrument in await self._session.execute(statement)}
+
+    async def list_tracked(
+        self, provider_id: uuid.UUID, *, asset_types: Sequence[AssetType] | None = None
+    ) -> Sequence[TrackedSymbol]:
+        """Enabled mappings of the provider, with each instrument's exchange session."""
+        statement = (
+            sa.select(
+                InstrumentProviderMapping.provider_symbol,
+                Instrument.asset_type,
+                Exchange.timezone,
+                Exchange.trading_open,
+                Exchange.trading_close,
+            )
+            .join(Instrument, Instrument.id == InstrumentProviderMapping.instrument_id)
+            .outerjoin(Exchange, Exchange.id == Instrument.exchange_id)
+            .where(
+                InstrumentProviderMapping.provider_id == provider_id,
+                InstrumentProviderMapping.enabled,
+                Instrument.enabled,
+            )
+            .order_by(InstrumentProviderMapping.provider_symbol)
+        )
+        if asset_types is not None:
+            statement = statement.where(Instrument.asset_type.in_(list(asset_types)))
+        return [TrackedSymbol(*row) for row in await self._session.execute(statement)]

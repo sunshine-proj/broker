@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.models.enums import Freshness, ObservationType, QuoteKind
+from app.models.enums import Freshness, JobKind, ObservationType, QuoteKind
 from app.providers.base import Capability, Provider
 from app.providers.errors import ProviderConfigurationError, ProviderResponseError
 from app.providers.factory import register_adapter
@@ -138,6 +138,18 @@ def _combined_key(keys: list[list[str]]) -> str:
 class EcbProvider(Provider):
     name = "ecb"
     capabilities = frozenset({Capability.QUOTES, Capability.QUOTE_HISTORY, Capability.INDICATORS})
+
+    @classmethod
+    def planned_credits(
+        cls,
+        kind: JobKind,
+        symbols: Sequence[str],
+        observation_types: Collection[ObservationType] | None = None,
+    ) -> int:
+        if kind is not JobKind.QUOTES:
+            return len(symbols)
+        # Current values: one request per dataflow (and key length).
+        return len({(s.partition("/")[0], s.count(".")) for s in symbols})
 
     async def fetch_quotes(
         self,

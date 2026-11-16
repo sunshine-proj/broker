@@ -77,7 +77,9 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 - A job never overlaps with a previous run of itself.
 - One provider's failure must not prevent other providers' jobs from running.
 - Scheduled runs, manual triggers, and retries all draw from the same per-provider rate budget.
-- Run a single scheduler instance. If the backend is ever scaled to several replicas, only one may run the scheduler.
+- Run a single scheduler instance (`SCHEDULER_ENABLED=true` in one process only). If the backend is ever scaled to several replicas, only one may run the scheduler.
+- Add or change jobs in the seed file, never in the database; keep each provider within its rate budget, which the seed check enforces.
+- Tests of anything that runs jobs commit for real and must clean up the tables they use.
 
 ## 8. Grafana
 

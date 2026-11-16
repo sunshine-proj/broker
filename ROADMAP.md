@@ -203,20 +203,20 @@ Verified with tests against FRED's documented response format. Not yet run again
 
 ### Tasks
 
-- [ ] Implement collector service.
-- [ ] Implement collection job configuration.
-- [ ] Implement scheduled jobs.
-- [ ] Implement manual collection trigger protected by the administrator key.
-- [ ] Implement configurable collection intervals.
-- [ ] Implement provider-specific scheduling.
-- [ ] Implement startup validation of the provider rate budget.
-- [ ] Implement trading-hours awareness for exchange-traded instruments.
-- [ ] Implement execution history.
-- [ ] Implement collection status tracking.
-- [ ] Implement retry handling.
-- [ ] Implement duplicate job prevention.
-- [ ] Implement failed job reporting.
-- [ ] Implement collector integration tests.
+- [x] Implement collector service.
+- [x] Implement collection job configuration.
+- [x] Implement scheduled jobs.
+- [x] Implement manual collection trigger protected by the administrator key.
+- [x] Implement configurable collection intervals.
+- [x] Implement provider-specific scheduling.
+- [x] Implement startup validation of the provider rate budget.
+- [x] Implement trading-hours awareness for exchange-traded instruments.
+- [x] Implement execution history.
+- [x] Implement collection status tracking.
+- [x] Implement retry handling.
+- [x] Implement duplicate job prevention.
+- [x] Implement failed job reporting.
+- [x] Implement collector integration tests.
 
 ### Acceptance Criteria
 

@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 4 are complete. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Four providers are integrated, and data can be collected from the command line:
+**Status:** Phases 0 to 5 are complete. Collection runs automatically on schedules defined in the seed file. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Four providers are integrated, and data can be collected from the command line:
 
 - **Twelve Data:** stocks, ETFs, forex.
 - **CoinGecko:** crypto.
@@ -257,6 +257,8 @@ Application configuration is provided through environment variables, read from `
 | `POSTGRES_HOST` | `localhost` | Database host; Docker Compose sets it to `db` for the backend |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
 | `LOG_FORMAT` | `json` | `json` (one object per line) or `text` |
+| `SCHEDULER_ENABLED` | `false` (`true` in the backend container) | Run the collection jobs on their schedules in this process. Enable it in one process only. |
+| `ADMIN_API_KEY` | (empty) | Key for triggering a job through the API (`X-API-Key` header). Empty disables API triggers. |
 | `SEED_FILE` | `backend/seed.toml` | Seed file to apply; in Docker, a path inside the backend image |
 | `FRED_API_KEY` | (empty) | [FRED](https://fredaccount.stlouisfed.org/apikeys) API key. Required for FRED collection. |
 | `COINGECKO_API_KEY` | (empty) | Optional [CoinGecko](https://www.coingecko.com/en/api) Demo key. Without it, CoinGecko's keyless API is used, at about 5 calls a minute. |
@@ -296,7 +298,42 @@ docker compose run --rm migrate python -m app.cli search twelve_data "apple"
 
 ## Collecting Data
 
-Scheduled collection arrives in Phase 5. Until then, collect on demand:
+Collection runs automatically. The backend container runs a scheduler that starts each job defined under `[[jobs]]` in [backend/seed.toml](backend/seed.toml):
+
+| Job | Schedule (UTC) |
+| --- | --- |
+| `twelve_data_listed_quotes` | Every 15 minutes, during New York trading hours |
+| `twelve_data_forex_quotes` | Every 15 minutes |
+| `twelve_data_daily_candles` | Daily at 00:30, retried once after an hour if it fails |
+| `coingecko_quotes` | Every 5 minutes |
+| `coingecko_dominance` | Every 2 hours |
+| `ecb_daily_quotes` | Daily at 16:00, with retry |
+| `ecb_indicators` | Daily at 10:00, with retry |
+| `fred_daily_quotes`, `fred_indicators` | Disabled until `FRED_API_KEY` is set and FRED's terms are settled |
+
+When the seed file is applied, the jobs are checked against every provider's rate limits. A configuration that would exceed one stops the startup, and the `migrate` log names the provider and the jobs.
+
+See the jobs, their last outcome and their next run:
+
+```bash
+docker compose run --rm migrate python -m app.cli jobs
+```
+
+Run a job now. From the command line:
+
+```bash
+docker compose run --rm migrate python -m app.cli run ecb_daily_quotes
+```
+
+Or through the API, with `ADMIN_API_KEY` set:
+
+```bash
+curl -X POST -H "X-API-Key: $ADMIN_API_KEY" http://localhost:8000/api/v1/collectors/ecb_daily_quotes/run
+```
+
+A job never runs twice at the same time. Every run is recorded in the `collector_execution` table with its trigger, status, record count and error.
+
+Collections can also be run directly, outside the jobs and without execution history:
 
 ```bash
 docker compose run --rm migrate python -m app.cli collect quotes twelve_data

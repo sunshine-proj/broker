@@ -70,6 +70,24 @@ class CandleInterval(StrEnum):
     MONTH_1 = "1month"
 
 
+class JobKind(StrEnum):
+    # Latest values of the provider's instruments.
+    QUOTES = "quotes"
+    # Closed candles over a recent window.
+    CANDLES = "candles"
+    # Past values over a recent window.
+    HISTORY = "history"
+    # Economic indicator values over a recent window.
+    INDICATORS = "indicators"
+
+
+class ExecutionTrigger(StrEnum):
+    SCHEDULED = "scheduled"
+    MANUAL = "manual"
+    # A one-off rerun after a failed run.
+    RETRY = "retry"
+
+
 class CollectorStatus(StrEnum):
     RUNNING = "running"
     SUCCESS = "success"

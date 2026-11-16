@@ -14,7 +14,7 @@ from itertools import batched
 
 from pydantic import BaseModel, RootModel, field_validator
 
-from app.models.enums import Freshness, ObservationType, QuoteKind
+from app.models.enums import Freshness, JobKind, ObservationType, QuoteKind
 from app.providers.base import Capability, Provider
 from app.providers.errors import (
     ProviderAuthError,
@@ -188,6 +188,25 @@ class CoinGeckoProvider(Provider):
     ) -> None:
         super().__init__(client)
         self._clock = clock
+
+    @classmethod
+    def planned_credits(
+        cls,
+        kind: JobKind,
+        symbols: Sequence[str],
+        observation_types: Collection[ObservationType] | None = None,
+    ) -> int:
+        if kind is not JobKind.QUOTES:
+            return len(symbols)
+        wanted = _ALL_TYPES if observation_types is None else _ALL_TYPES & set(observation_types)
+        if not symbols or not wanted:
+            return 0
+        # One market-data request per vs currency and 250 coins, plus one for dominance.
+        per_currency: dict[str, int] = defaultdict(int)
+        for symbol in symbols:
+            per_currency[symbol.partition("/")[2].lower()] += 1
+        requests = sum(-(-count // _MAX_IDS_PER_REQUEST) for count in per_currency.values())
+        return requests + (1 if ObservationType.DOMINANCE in wanted else 0)
 
     async def fetch_quotes(
         self,

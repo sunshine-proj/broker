@@ -12,7 +12,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ValidationError
 
-from app.models.enums import CandleInterval, ObservationType
+from app.models.enums import CandleInterval, JobKind, ObservationType
 from app.providers.errors import ProviderResponseError, UnsupportedOperationError
 from app.providers.http import ProviderHttpClient
 from app.schemas.normalized import Candle, IndicatorValue, Quote, SymbolMatch
@@ -33,6 +33,20 @@ class Provider:
 
     def __init__(self, client: ProviderHttpClient) -> None:
         self._client = client
+
+    @classmethod
+    def planned_credits(
+        cls,
+        kind: JobKind,
+        symbols: Sequence[str],
+        observation_types: Collection[ObservationType] | None = None,
+    ) -> int:
+        """Rate-limit credits one run of a job uses, for the startup budget check.
+
+        The default is one credit per symbol. Adapters that batch symbols into
+        fewer requests, or need extra ones, override this.
+        """
+        return len(symbols)
 
     async def fetch_quotes(
         self,

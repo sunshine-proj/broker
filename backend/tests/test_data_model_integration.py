@@ -24,6 +24,7 @@ from app.models.enums import (
     ObservationType,
     QuoteKind,
 )
+from app.repositories.collection_jobs import SqlCollectionJobRepository
 from app.repositories.economic_data import SqlEconomicDataRepository
 from app.repositories.instruments import SqlInstrumentRepository
 from app.repositories.market_data import SqlMarketDataRepository
@@ -575,6 +576,7 @@ async def _apply(session: AsyncSession, data: dict) -> None:
         providers=SqlProviderRepository(session),
         instruments=SqlInstrumentRepository(session),
         economic_data=SqlEconomicDataRepository(session),
+        jobs=SqlCollectionJobRepository(session),
     )
     await session.commit()
 

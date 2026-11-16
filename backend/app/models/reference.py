@@ -1,7 +1,7 @@
 """Reference entities: exchanges, instruments, providers and their mappings."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any
 
 import sqlalchemy as sa
@@ -23,6 +23,10 @@ class Exchange(Base):
     name: Mapped[str] = mapped_column(sa.String(255))
     country: Mapped[str | None] = mapped_column(sa.String(2))
     timezone: Mapped[str] = mapped_column(sa.String(64))
+    # Regular session, in the exchange's local time, Monday to Friday.
+    # Null where the session is not configured. Holidays are not modelled.
+    trading_open: Mapped[time | None] = mapped_column(sa.Time)
+    trading_close: Mapped[time | None] = mapped_column(sa.Time)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=sa.func.now()
     )

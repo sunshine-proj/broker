@@ -37,13 +37,17 @@ class ProviderHealthService:
         )
 
     async def guard[T](
-        self, provider_id: uuid.UUID, operation: Callable[[], Awaitable[T]]
+        self,
+        provider_id: uuid.UUID,
+        operation: Callable[[], Awaitable[T]],
+        errors: list[str] | None = None,
     ) -> T | None:
         """Run a provider call, record the outcome, and contain a provider failure.
 
         Returns the result, or None if the provider failed. A provider error is
         logged and recorded but never propagates, so one provider cannot stop
-        the others. Any other exception is a bug and is not swallowed.
+        the others; its description is appended to `errors` if given. Any
+        other exception is a bug and is not swallowed.
         """
         try:
             result = await operation()
@@ -52,7 +56,10 @@ class ProviderHealthService:
                 "Provider call failed",
                 extra={"provider": exc.provider, "error": exc.message, "kind": type(exc).__name__},
             )
-            await self.record_failure(provider_id, f"{type(exc).__name__}: {exc.message}")
+            description = f"{type(exc).__name__}: {exc.message}"
+            await self.record_failure(provider_id, description)
+            if errors is not None:
+                errors.append(description)
             return None
         await self.record_success(provider_id)
         return result

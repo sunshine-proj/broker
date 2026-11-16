@@ -1,13 +1,13 @@
 """One collection run for one provider: fetch, validate, store.
 
 Provider failures are contained and recorded as provider health; they never
-propagate to the caller. Scheduling and execution history are added by the
-collection engine (roadmap Phase 5), which calls these functions.
+propagate to the caller. Scheduling and execution history are handled by the
+job runner (app/collectors), which calls these functions.
 """
 
 import logging
-from collections.abc import Awaitable, Callable, Collection
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Collection, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from app.models import Provider as ProviderRow
@@ -30,6 +30,8 @@ class CollectionOutcome:
     # False when at least one provider call failed.
     succeeded: bool
     result: IngestionResult
+    # Descriptions of the provider failures, if any.
+    errors: tuple[str, ...] = field(default=())
 
 
 def _combine(results: list[IngestionResult]) -> IngestionResult:
@@ -66,27 +68,39 @@ class CollectionService:
         self,
         provider: ProviderRow,
         observation_types: Collection[ObservationType] | None = None,
+        *,
+        symbols: Sequence[str] | None = None,
     ) -> CollectionOutcome:
         """Fetch and store the latest value of every enabled instrument mapped to the provider.
 
-        `observation_types` limits what is fetched; None means everything the provider offers.
+        `observation_types` limits what is fetched; None means everything the
+        provider offers. `symbols` replaces the provider's mapped symbols.
         """
-        symbols = await self._symbols(provider)
+        symbols = list(symbols) if symbols is not None else await self._symbols(provider)
         if not symbols:
             return CollectionOutcome(provider.name, 0, True, IngestionResult())
 
         async def fetch() -> list[Quote]:
             return await self._factory.build(provider).fetch_quotes(symbols, observation_types)
 
-        quotes = await self._health.guard(provider.id, fetch)
+        errors: list[str] = []
+        quotes = await self._health.guard(provider.id, fetch, errors)
         if quotes is None:
-            return CollectionOutcome(provider.name, len(symbols), False, IngestionResult())
+            return CollectionOutcome(
+                provider.name, len(symbols), False, IngestionResult(), tuple(errors)
+            )
         result = await self._ingestion.ingest_quotes(provider.id, quotes)
         logger.info("Quotes collected", extra={"provider": provider.name, **result.__dict__})
         return CollectionOutcome(provider.name, len(symbols), True, result)
 
     async def collect_candles(
-        self, provider: ProviderRow, interval: CandleInterval, start: datetime, end: datetime
+        self,
+        provider: ProviderRow,
+        interval: CandleInterval,
+        start: datetime,
+        end: datetime,
+        *,
+        symbols: Sequence[str] | None = None,
     ) -> CollectionOutcome:
         """Fetch and store closed candles of every enabled instrument mapped to the provider.
 
@@ -97,7 +111,7 @@ class CollectionService:
             candles = await adapter.fetch_candles(symbol, interval, start, end)
             return await self._ingestion.ingest_candles(provider.id, candles)
 
-        outcome = await self._per_symbol(provider, collect)
+        outcome = await self._per_symbol(provider, collect, symbols)
         logger.info(
             "Candles collected",
             extra={
@@ -109,7 +123,12 @@ class CollectionService:
         return outcome
 
     async def collect_quote_history(
-        self, provider: ProviderRow, start: datetime, end: datetime
+        self,
+        provider: ProviderRow,
+        start: datetime,
+        end: datetime,
+        *,
+        symbols: Sequence[str] | None = None,
     ) -> CollectionOutcome:
         """Fetch and store past values of every enabled instrument mapped to the provider.
 
@@ -120,7 +139,7 @@ class CollectionService:
             quotes = await adapter.fetch_quote_history(symbol, start, end)
             return await self._ingestion.ingest_quotes(provider.id, quotes)
 
-        outcome = await self._per_symbol(provider, collect)
+        outcome = await self._per_symbol(provider, collect, symbols)
         logger.info(
             "Quote history collected", extra={"provider": provider.name, **outcome.result.__dict__}
         )
@@ -153,15 +172,15 @@ class CollectionService:
         self,
         provider: ProviderRow,
         collect: Callable[[Provider, str], Awaitable[IngestionResult]],
-        symbols: list[str] | None = None,
+        symbols: Sequence[str] | None = None,
     ) -> CollectionOutcome:
         """Run `collect` for each symbol, containing each symbol's provider failure.
 
         `symbols` defaults to the provider's enabled instrument mappings.
         """
-        if symbols is None:
-            symbols = await self._symbols(provider)
+        symbols = list(symbols) if symbols is not None else await self._symbols(provider)
         results: list[IngestionResult] = []
+        errors: list[str] = []
         succeeded = True
 
         for symbol in symbols:
@@ -169,10 +188,12 @@ class CollectionService:
             async def run(symbol: str = symbol) -> IngestionResult:
                 return await collect(self._factory.build(provider), symbol)
 
-            result = await self._health.guard(provider.id, run)
+            result = await self._health.guard(provider.id, run, errors)
             if result is None:
                 succeeded = False
                 continue
             results.append(result)
 
-        return CollectionOutcome(provider.name, len(symbols), succeeded, _combine(results))
+        return CollectionOutcome(
+            provider.name, len(symbols), succeeded, _combine(results), tuple(errors)
+        )

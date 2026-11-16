@@ -15,11 +15,13 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.repositories.interfaces import (
+    CollectionJobRepository,
     EconomicDataRepository,
     InstrumentRepository,
     ProviderRepository,
 )
 from app.schemas.seed import SeedFile
+from app.services.budget import BudgetExceededError, check_budget
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class SeedSummary:
     instruments: int = 0
     mappings: int = 0
     indicators: int = 0
+    jobs: int = 0
 
 
 def load_seed_file(path: Path) -> SeedFile:
@@ -57,8 +60,27 @@ async def apply_seed(
     providers: ProviderRepository,
     instruments: InstrumentRepository,
     economic_data: EconomicDataRepository,
+    jobs: CollectionJobRepository,
 ) -> SeedSummary:
-    """Create or update everything in `seed`. The caller commits."""
+    """Create or update everything in `seed`. The caller commits.
+
+    Raises SeedError, before writing anything, if the enabled jobs would use
+    more than a provider's rate limits allow (PRD FR-011).
+    """
+    try:
+        usages = check_budget(seed)
+    except BudgetExceededError as exc:
+        raise SeedError(f"Seed file exceeds a provider's rate budget: {exc}") from exc
+    for usage in usages:
+        logger.info(
+            "Provider budget",
+            extra={
+                "provider": usage.provider,
+                "period": usage.period.value,
+                "planned": round(usage.planned, 1),
+                "limit": usage.limit,
+            },
+        )
     provider_ids = {
         provider.name: await providers.upsert(
             name=provider.name,
@@ -74,6 +96,8 @@ async def apply_seed(
             name=exchange.name,
             country=exchange.country,
             timezone=exchange.timezone,
+            trading_open=exchange.trading_open,
+            trading_close=exchange.trading_close,
         )
         for exchange in seed.exchanges
     }
@@ -110,12 +134,30 @@ async def apply_seed(
             metadata=indicator.metadata,
         )
 
+    for job in seed.jobs:
+        await jobs.upsert(
+            name=job.name,
+            provider_id=provider_ids[job.provider],
+            kind=job.kind,
+            interval_minutes=job.interval_minutes,
+            daily_at=job.daily_at,
+            market_hours_only=job.market_hours_only,
+            retry_minutes=job.retry_minutes,
+            settings=job.settings(),
+            enabled=job.enabled,
+        )
+    # Jobs are scheduled only from the seed file: one removed from it stops running.
+    disabled = await jobs.disable_others([job.name for job in seed.jobs])
+    if disabled:
+        logger.info("Jobs no longer in the seed file disabled", extra={"count": disabled})
+
     summary = SeedSummary(
         exchanges=len(seed.exchanges),
         providers=len(seed.providers),
         instruments=len(seed.instruments),
         mappings=mappings,
         indicators=len(seed.indicators),
+        jobs=len(seed.jobs),
     )
     logger.info("Seed applied", extra=summary.__dict__)
     return summary

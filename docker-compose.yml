@@ -48,7 +48,12 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      # The backend runs the collection jobs on their schedules. Run one backend only.
+      SCHEDULER_ENABLED: "true"
+      # Enables POST /api/v1/collectors/{job}/run when set.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy

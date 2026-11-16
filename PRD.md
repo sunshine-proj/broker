@@ -293,7 +293,9 @@ Each job must support:
 - Last execution time
 - Next scheduled execution
 
-Jobs for exchange-traded instruments run only during the relevant exchange's trading hours, so quota is not spent while markets are closed.
+Jobs for exchange-traded instruments run only during the relevant exchange's trading hours, so quota is not spent while markets are closed. Exchange holidays are not modelled.
+
+Jobs are defined in the seed file (`[[jobs]]`) with a schedule of either a clock-aligned interval or a daily UTC time. A failed run may be retried once after a configured delay. A job never runs twice at the same time, across processes. A manual run (API or command line) collects every instrument of the job, also outside trading hours.
 
 ### FR-008: Grafana Integration
 
@@ -335,7 +337,7 @@ The platform must provide visibility into:
 
 Each provider has a configured quota (per minute, per day, or per month, as the provider defines it).
 
-- At startup, the application computes the calls each provider's enabled jobs will make (instruments × polls per period) and refuses to schedule a configuration that exceeds the quota, reporting which provider is over budget.
+- At startup, before the seed file is applied, the application computes the calls each provider's enabled jobs will make (instruments × polls per period) and refuses a configuration that exceeds the quota, reporting which provider is over budget. Market-hours jobs are counted as if every day were a trading day, retries as if every run were retried, and a month as 31 days.
 - At runtime, a per-provider rate limiter enforces the quota across scheduled jobs, manual triggers, and retries together.
 - Requests that fetch several instruments in one call are preferred wherever the provider supports them.
 - A request that would have to wait longer than a configured maximum for capacity is refused, not queued. An exhausted daily or monthly quota therefore fails fast.

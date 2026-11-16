@@ -7,6 +7,8 @@ Usage:
     python -m app.cli collect candles PROVIDER [--interval 1day] [--days 30]
     python -m app.cli collect history PROVIDER [--days 30]
     python -m app.cli collect indicators PROVIDER [--days 730]
+    python -m app.cli jobs
+    python -m app.cli run JOB
 """
 
 import argparse
@@ -22,13 +24,21 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.providers  # noqa: F401  (registers the adapters)
+from app.collectors.runner import (
+    JobAlreadyRunningError,
+    JobDisabledError,
+    JobNotFoundError,
+    JobRunner,
+    RunResult,
+)
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.database import create_engine, create_session_factory
 from app.models import Provider as ProviderRow
-from app.models.enums import CandleInterval, ObservationType
+from app.models.enums import CandleInterval, CollectorStatus, ExecutionTrigger, ObservationType
 from app.providers.errors import ProviderError
 from app.providers.factory import ProviderFactory
+from app.repositories.collection_jobs import SqlCollectionJobRepository
 from app.repositories.economic_data import SqlEconomicDataRepository
 from app.repositories.instruments import SqlInstrumentRepository
 from app.repositories.market_data import SqlMarketDataRepository
@@ -82,6 +92,7 @@ async def seed(settings: Settings, path: Path) -> None:
             providers=SqlProviderRepository(session),
             instruments=SqlInstrumentRepository(session),
             economic_data=SqlEconomicDataRepository(session),
+            jobs=SqlCollectionJobRepository(session),
         )
         await session.commit()
 
@@ -143,6 +154,57 @@ async def collect(settings: Settings, request: CollectRequest) -> CollectionOutc
         await factory.aclose()
 
 
+async def list_jobs(settings: Settings) -> None:
+    """Print every collection job with its schedule and last outcome."""
+    async with _session(settings) as session:
+        jobs = await SqlCollectionJobRepository(session).list()
+
+    def when(value: datetime | None) -> str:
+        return value.strftime("%Y-%m-%d %H:%M") if value else "-"
+
+    print(f"{'JOB':<30} {'ON':<3} {'SCHEDULE':<14} {'LAST RUN':<17} {'STATUS':<8} {'NEXT RUN':<17}")
+    for job in jobs:
+        schedule = (
+            f"daily {job.daily_at.strftime('%H:%M')}"
+            if job.daily_at
+            else f"every {job.interval_minutes}m"
+        )
+        if job.market_hours_only:
+            schedule += "*"
+        print(
+            f"{job.name:<30} {'yes' if job.enabled else 'no':<3} {schedule:<14} "
+            f"{when(job.last_started_at):<17} {(job.last_status or '-'):<8} "
+            f"{when(job.next_run_at):<17}"
+        )
+        if job.last_error:
+            print(f"    last error: {job.last_error}")
+    print("\nTimes in UTC. * = trading hours only. NEXT RUN is kept by the running scheduler.")
+
+
+async def run_job(settings: Settings, job_name: str) -> RunResult:
+    """Run a job now, as a manual run, and wait for it to finish."""
+    engine = create_engine(settings)
+    factory = ProviderFactory(settings)
+    runner = JobRunner(
+        engine=engine,
+        session_factory=create_session_factory(engine),
+        provider_factory=factory,
+    )
+    try:
+        result = await runner.run(job_name, ExecutionTrigger.MANUAL)
+    except JobNotFoundError as exc:
+        raise CommandError(f"Unknown job: {job_name}") from exc
+    except JobDisabledError as exc:
+        raise CommandError(f"Job {job_name} is disabled") from exc
+    except JobAlreadyRunningError as exc:
+        raise CommandError(f"Job {job_name} is already running") from exc
+    finally:
+        await factory.aclose()
+        await engine.dispose()
+    assert result is not None  # manual runs are never skipped
+    return result
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -153,6 +215,10 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser = commands.add_parser("search", help="search a provider's symbols")
     search_parser.add_argument("provider")
     search_parser.add_argument("query")
+
+    commands.add_parser("jobs", help="list collection jobs and their status")
+    run_parser = commands.add_parser("run", help="run a collection job now")
+    run_parser.add_argument("job")
 
     collect_parser = commands.add_parser("collect", help="collect data from a provider once")
     kinds = collect_parser.add_subparsers(dest="kind", required=True)
@@ -209,6 +275,11 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(seed(settings, args.file or settings.seed_file))
         elif args.command == "search":
             asyncio.run(search(settings, args.provider, args.query))
+        elif args.command == "jobs":
+            asyncio.run(list_jobs(settings))
+        elif args.command == "run":
+            result = asyncio.run(run_job(settings, args.job))
+            return 0 if result.status is CollectorStatus.SUCCESS else 2
         else:
             request = CollectRequest(
                 kind=args.kind,

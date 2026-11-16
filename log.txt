@@ -236,6 +236,56 @@ Phase 5 (scheduled collection) is next, and doesn't depend on the FRED decision.
 
 
 
+Phase 5 (Collection Engine and Scheduler) is done: collection now runs automatically inside the backend. All 14 roadmap tasks are ticked, 386 tests pass, Ruff is clean, and the scheduled jobs ran successfully on the live stack.
+
+A security bug I caught and fixed
+While checking that manual triggers turn off without an admin key, I found they didn't.
+
+Cause: Docker Compose passes an unset ADMIN_API_KEY as an empty string. The server took that as a configured key of "", so a request with an empty X-API-Key header got through. I confirmed it on the live stack, using a job name that doesn't exist, so nothing ran.
+Fix: an empty key now counts as unset, and the endpoint also refuses a blank key on either side.
+Check: after rebuilding, any request is refused as "disabled" (403). Regression tests cover both layers.
+Exposure: it was open for a few minutes, during my own testing, while the backend was reachable only from this machine.
+Verified on the live stack
+Scheduled runs: all fired on time and succeeded.
+CoinGecko ran at 14:35, 14:40 and 14:45 UTC, with 50 values each time.
+Twelve Data forex ran at 14:45.
+Twelve Data stocks and ETFs ran at 14:45, while US markets were open.
+Rate limiting: both Twelve Data jobs fired at 14:45 and needed 15 credits against a limit of 8 a minute. The rate limiter spread them over two minutes instead of failing.
+Manual trigger: a run starts in the background and returns its execution id. A second trigger while it runs gets "already running" (409). An unknown job gets 404, a disabled one 409, and a bad key 401.
+Budget check: at startup it logged Twelve Data at 780 of 800 credits a day and CoinGecko at 9,672 of 10,000 a month. An over-budget seed is refused before anything is written.
+How it works
+Jobs live in backend/seed.toml under [[jobs]]. Each has a schedule, either every N minutes on the clock or daily at a UTC time, plus optional filters and an optional one-time retry. Jobs removed from the file are disabled.
+Nine default jobs, of which seven are active. Stocks and ETFs every 15 minutes during New York trading hours, forex every 15 minutes, crypto every 5 minutes, crypto dominance every 2 hours, and daily candles, ECB rates and indicators once a day. The two FRED jobs are disabled until you settle FRED's terms and add a key.
+No overlapping runs: a database lock per job stops two runs of the same job from overlapping, even across processes.
+Execution history: every run is recorded with its trigger, status, record count and error. Each job also shows its last outcome and next run time. python -m app.cli jobs lists this, and python -m app.cli run JOB runs a job now.
+Isolation: a failing job or provider doesn't affect the others, and runs interrupted by a restart are closed as failed on the next start.
+Limitations
+Exchange holidays aren't modelled: a market-hours job still polls on a holiday. That costs credits but stays within budget.
+Direct collection bypasses jobs: collect commands run outside any job, so they skip the job lock and the execution history. They do use the provider rate limits.
+One scheduler only: run a single backend with the scheduler on. Two would each spend the provider budget.
+Rate-limit counts reset on restart: they're held in memory. The budget check keeps planned usage in bounds, and an HTTP 429 from a provider pauses requests until its allowance resets.
+Decision for you
+To trigger jobs through the API, set ADMIN_API_KEY in .env. .env.example now shows how to generate one. Without it, API triggers stay disabled and the command line still works.
+
+Next is Phase 6, the REST API for reading the collected data.
+
+
+
+
+===========================================
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -1,6 +1,6 @@
 # Backend Architecture
 
-This document describes the backend as it is built today (through Phase 4). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
+This document describes the backend as it is built today (through Phase 5). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
 
 ## Request Flow
 
@@ -40,8 +40,11 @@ uvicorn  ->  FastAPI app (app/main.py: create_app)
 | `app/services/ingestion.py`, `validation.py` | Validates normalized provider data and stores it. |
 | `app/services/provider_health.py` | Records provider health and contains provider failures. |
 | `app/services/collection.py` | One collection run for one provider: fetch, validate, store. |
+| `app/services/budget.py` | The startup rate budget check. |
+| `app/collectors/` | Job runner and scheduler. |
+| `app/api/v1/collectors.py` | Manual job trigger. |
 | `app/providers/twelve_data.py`, `coingecko.py`, `ecb.py`, `fred.py` | Provider adapters. |
-| `app/cli.py` | Administrative commands: `seed`, `search`, `collect`. |
+| `app/cli.py` | Administrative commands: `seed`, `search`, `collect`, `jobs`, `run`. |
 | `migrations/` | Alembic environment and revisions. |
 
 ## Application Factory
@@ -64,7 +67,7 @@ Schema changes are made only through Alembic revisions in `backend/migrations/ve
 
 - `migrations/env.py` builds the database URL from `Settings`; no URL is stored in `alembic.ini`.
 - In Docker Compose, the one-shot `migrate` service runs `alembic upgrade head`, then applies the seed file, and the backend starts only after both succeed.
-- Revision `0001` enables the TimescaleDB extension; `0002` creates the data model; `0003` restricts candle intervals to the normalized set.
+- Revision `0001` enables the TimescaleDB extension; `0002` creates the data model; `0003` restricts candle intervals to the normalized set; `0004` adds collection jobs, execution triggers and exchange sessions.
 - A migration spells out its own enumeration values instead of importing them, so it does not change when the application does.
 - An integration test compares the models with the migrated schema and fails on any difference, so a model change without a migration is caught. A second test compares check-constraint names exactly, which the first does not cover.
 
@@ -216,7 +219,7 @@ Because a provider error never leaves `guard`, one provider's failure cannot sto
 - `collect_indicators` fetches each enabled economic indicator of the provider, series by series.
 - A missing credential or other configuration problem is recorded as a provider failure, like any other.
 
-Scheduling and execution history arrive in Phase 5. Until then collection runs from the command line:
+The same collections can be run by hand from the command line, outside any job and without execution history:
 
 ```bash
 python -m app.cli collect quotes twelve_data
@@ -229,13 +232,97 @@ python -m app.cli search coingecko "cardano"
 
 `collect` exits with 0 on success, 1 if it could not run, and 2 if a provider call failed. The failure is logged and recorded in `provider_health` either way.
 
+## Collection Engine
+
+Scheduled collection is organised as **jobs**. A job is one kind of collection (`quotes`, `candles`, `history` or `indicators`) for one provider, on one schedule. Jobs are defined in the seed file and stored in `collection_job`.
+
+```text
+seed.toml [[jobs]] --apply_seed--> collection_job
+                                          |
+             CollectorScheduler (APScheduler, in the backend) --+
+             POST /api/v1/collectors/{job}/run -----------------+--> JobRunner
+             python -m app.cli run JOB --------------------------+      |
+                                                                          v
+                                                  advisory lock, collector_execution row,
+                                                  CollectionService, outcome recorded
+```
+
+### Job Configuration
+
+| Field | Meaning |
+| --- | --- |
+| `interval_minutes` | Run every N minutes, aligned to the clock in UTC. N must divide 60 (every 15 minutes fires at :00, :15, :30, :45), or be whole hours dividing 24 (fired on the hour). |
+| `daily_at` | Run once a day at this UTC time. Exactly one of the two schedules is set. |
+| `asset_types` | Only instruments of these asset types. |
+| `observation_types` | Quotes jobs: only these observation types. |
+| `candle_interval` | Candles jobs: the candle length. |
+| `lookback_days` | Candles, history and indicators jobs: how far back each run fetches. Values already stored are not written again. |
+| `market_hours_only` | Scheduled runs poll only instruments whose exchange is in its regular session. When every exchange is closed, the run is skipped and nothing is recorded. |
+| `retry_minutes` | After a failed scheduled run, run once more this many minutes later, unless the next regular run comes sooner. A retry is not retried. |
+| `enabled` | Disabled jobs are not scheduled and cannot be triggered. |
+
+Jobs removed from the seed file are disabled the next time it is applied. Instruments are not handled this way, because stored history refers to them.
+
+### Trading Sessions
+
+Exchanges have `trading_open` and `trading_close` in local time, Monday to Friday. Both ends count as open, so a 15-minute job polls 27 times between 09:30 and 16:00 New York time. Daylight saving time follows the exchange's time zone.
+
+Holidays are not modelled: on an exchange holiday, a market-hours job polls and finds unchanged prices. This costs credits, but no more than the budget already allows.
+
+### Rate Budget Check
+
+Before the seed file is applied, `services/budget.py` adds up the planned use of every enabled job and compares it with each limit of its provider (PRD FR-011). An over-budget configuration is refused with a message naming the provider, the limit and each job's share, and nothing is written. Because the `migrate` service applies the seed, the stack does not start.
+
+- **Credits per run:** each adapter's `planned_credits`. Twelve Data charges per symbol, CoinGecko per batched request plus one for dominance, and the ECB per dataflow.
+- **Runs per day:** counted on a trading day, both in winter and summer time, taking the larger. A job with a retry counts double.
+- **Periods:** a month counts 31 days. Limits shorter than a day are compared with the average use; bursts within a minute are paced by the rate limiter at run time.
+
+### Running a Job
+
+`JobRunner` runs a job in two steps, so that a manual trigger can answer at once:
+
+1. **Prepare.** Take a PostgreSQL advisory lock for the job on a dedicated connection, insert a `collector_execution` row with status `running`, and set the job's `last_started_at`. If the lock is taken, the run is refused (`JobAlreadyRunningError`). This holds across processes, so a command-line run and the scheduler cannot overlap either.
+2. **Execute.** Run the collection, then record the outcome on the execution and the job (`last_status`, `last_finished_at`, `last_error`), and release the lock.
+
+| Outcome | Execution status |
+| --- | --- |
+| Every provider call succeeded | `success` |
+| One or more provider calls failed | `failed`, with a summary such as `1 of 15 provider calls failed: ...`. Data that did arrive is kept. |
+| Unexpected exception (a bug) | `failed`, with the exception type and message. The traceback is logged. The scheduler keeps running. |
+
+Executions left `running` by a process that stopped are closed as failed ("interrupted") when the scheduler starts.
+
+### Scheduler
+
+`CollectorScheduler` wraps APScheduler's `AsyncIOScheduler` in the backend process. It is started by the application lifespan when `SCHEDULER_ENABLED` is true; Docker Compose sets it for the backend.
+
+- Each enabled job gets a cron trigger in UTC, `max_instances=1` and `coalesce=True`. A run due while the previous one is still going is dropped, not queued.
+- After each run, the job's `next_run_at` is updated.
+- Run one scheduler per deployment. The job lock prevents overlapping runs, but two schedulers would each attempt every run and spend the provider budget twice.
+
+### Manual Trigger
+
+`POST /api/v1/collectors/{job}/run` starts a run in the background and answers `202` with the execution id. It requires the header `X-API-Key` to match `ADMIN_API_KEY`, and is disabled while that is unset.
+
+| Situation | Status | `error.code` |
+| --- | --- | --- |
+| Run started | 202 | |
+| `ADMIN_API_KEY` not set | 403 | `manual_trigger_disabled` |
+| Header missing or wrong | 401 | `invalid_api_key` |
+| No such job | 404 | `job_not_found` |
+| Job disabled | 409 | `job_disabled` |
+| Job already running | 409 | `job_running` |
+
+A manual run collects every instrument of the job, also outside trading hours, and draws on the same provider budget. From the command line, `python -m app.cli run JOB` does the same and waits for the result; `python -m app.cli jobs` lists every job with its schedule, last outcome and next run.
+
 ## Seed File
 
 `backend/seed.toml` is the source of truth for what is tracked (PRD FR-004). `python -m app.cli seed` validates it and applies it in one transaction.
 
 - Validation rejects unknown keys, unknown enumeration values, duplicates, invalid provider configuration, a `base_url` that is not `https`, and references to an exchange or provider the file does not define. Nothing is written if validation fails.
 - Each entry is created or updated on its natural key, so applying the file twice changes nothing.
-- Entries absent from the file are left alone.
+- Entries absent from the file are left alone, except jobs, which are disabled.
+- The rate budget is checked first; an over-budget file is refused.
 
 ## Error Handling
 
@@ -277,4 +364,5 @@ Each log line is a JSON object with `timestamp` (UTC), `level`, `logger` and `me
 - **Provider tests** answer HTTP requests with `httpx.MockTransport` and use a fake clock, so retries, backoff and rate-limit waits are tested without real waiting or network.
 - **Integration tests** are marked `integration`. They create a separate database (`POSTGRES_TEST_DB`, default `marketdata_test`) on the same server, migrate it with Alembic, and run against it. The application database is never touched.
 - Database tests use the `session` fixture, which wraps each test in a transaction that is rolled back, so tests do not see each other's rows.
+- Collection engine tests commit for real, because the runner opens its own connections. They empty the tables they use before and after each test, in the test database only.
 - When the database is unreachable, integration tests are skipped. Setting `REQUIRE_DATABASE=1` (as continuous integration does) turns that skip into a failure.
