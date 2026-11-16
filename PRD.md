@@ -178,6 +178,8 @@ Provider integrations must be independent.
 
 Provider quotas, plans, and licensing terms change. Each integration documents the limits it was built against, and the limits themselves are configuration, not code.
 
+**Open licensing question:** FRED's terms prohibit storing, caching or archiving FRED content, which conflicts with this platform's permanent history. The FRED series used here are published by US government agencies and could be sourced from them directly. See [docs/providers/fred.md](docs/providers/fred.md).
+
 ## 5. Functional Requirements
 
 ### FR-001: Data Collection

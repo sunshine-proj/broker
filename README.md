@@ -2,7 +2,12 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 3 and Phases 4A to 4C are complete. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Twelve Data (stocks, ETFs, forex), CoinGecko (crypto) and the ECB (reference exchange rates, €STR, key rates, euro-area statistics) are integrated, and data can be collected from the command line. Scheduled collection, the data endpoints and dashboards are not implemented yet. See [ROADMAP.md](ROADMAP.md) for progress; the sections below marked *planned* describe the target.
+**Status:** Phases 0 to 4 are complete. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Four providers are integrated, and data can be collected from the command line:
+
+- **Twelve Data:** stocks, ETFs, forex.
+- **CoinGecko:** crypto.
+- **ECB:** reference exchange rates, €STR, key rates, euro-area statistics.
+- **FRED:** US Treasury yields, federal funds rate, US statistics. Needs a key; see the licensing note in [docs/providers/fred.md](docs/providers/fred.md). Scheduled collection, the data endpoints and dashboards are not implemented yet. See [ROADMAP.md](ROADMAP.md) for progress; the sections below marked *planned* describe the target.
 
 Collect financial data from multiple providers, normalize it, store historical observations, and visualize everything through Grafana.
 
@@ -253,6 +258,7 @@ Application configuration is provided through environment variables, read from `
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
 | `LOG_FORMAT` | `json` | `json` (one object per line) or `text` |
 | `SEED_FILE` | `backend/seed.toml` | Seed file to apply; in Docker, a path inside the backend image |
+| `FRED_API_KEY` | (empty) | [FRED](https://fredaccount.stlouisfed.org/apikeys) API key. Required for FRED collection. |
 | `COINGECKO_API_KEY` | (empty) | Optional [CoinGecko](https://www.coingecko.com/en/api) Demo key. Without it, CoinGecko's keyless API is used, at about 5 calls a minute. |
 | `TWELVEDATA_API_KEY` | (empty) | [Twelve Data](https://twelvedata.com/pricing) API key. The free Basic plan is enough for the default instruments. Without it, Twelve Data collection fails and is reported as a provider failure. |
 | `GRAFANA_ADMIN_USER` | `admin` | Grafana administrator user |
@@ -279,7 +285,8 @@ The file currently tracks:
 
 - 7 US stocks, 3 ETFs and 5 forex pairs through Twelve Data;
 - 10 cryptocurrencies through CoinGecko;
-- 4 euro reference exchange rates, €STR, two ECB key rates and 4 euro-area economic indicators through the ECB.
+- 4 euro reference exchange rates, €STR, two ECB key rates and 4 euro-area economic indicators through the ECB;
+- 6 US Treasury yields, the effective federal funds rate and 6 US economic indicators through FRED.
 
 Each is sized to the provider's free plan. Other providers are added in later sub-phases of Phase 4. To find the symbol a provider uses:
 
@@ -299,6 +306,8 @@ docker compose run --rm migrate python -m app.cli collect history coingecko --da
 docker compose run --rm migrate python -m app.cli collect quotes ecb
 docker compose run --rm migrate python -m app.cli collect history ecb --days 365
 docker compose run --rm migrate python -m app.cli collect indicators ecb
+docker compose run --rm migrate python -m app.cli collect quotes fred
+docker compose run --rm migrate python -m app.cli collect indicators fred
 ```
 
 Each run uses provider credits:
@@ -307,8 +316,9 @@ Each run uses provider credits:
 - **CoinGecko:** 2 for current values and dominance, and 10 for history, one per coin. History is limited to the past 365 days and stops 2 days short of today, because CoinGecko may still revise recent values.
 
 - **ECB:** no key and no published limit. A collection takes a few requests.
+- **FRED:** one request per series, within 120 a minute.
 
-CoinGecko's free plans require attribution ("Powered by CoinGecko") wherever its data is displayed, and ECB data must cite the ECB as its source. Provider limits and licensing are documented in [docs/providers/](docs/providers/).
+CoinGecko's free plans require attribution ("Powered by CoinGecko") wherever its data is displayed, ECB data must cite the ECB as its source, and applications using the FRED API must show FRED's notice. FRED's terms also prohibit archiving its content, which is unresolved; see [docs/providers/fred.md](docs/providers/fred.md). Provider limits and licensing are documented in [docs/providers/](docs/providers/).
 
 ## Development Roadmap
 

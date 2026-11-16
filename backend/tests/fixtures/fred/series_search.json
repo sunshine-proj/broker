@@ -1,0 +1,47 @@
+{
+ "realtime_start": "2026-11-16",
+ "realtime_end": "2026-11-16",
+ "order_by": "popularity",
+ "sort_order": "desc",
+ "count": 2,
+ "offset": 0,
+ "limit": 30,
+ "seriess": [
+  {
+   "id": "DGS10",
+   "realtime_start": "2026-11-16",
+   "realtime_end": "2026-11-16",
+   "title": "Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Quoted on an Investment Basis",
+   "observation_start": "1962-01-02",
+   "observation_end": "2026-11-12",
+   "frequency": "Daily",
+   "frequency_short": "D",
+   "units": "Percent",
+   "units_short": "%",
+   "seasonal_adjustment": "Not Seasonally Adjusted",
+   "seasonal_adjustment_short": "NSA",
+   "last_updated": "2026-11-13 15:18:02-06",
+   "popularity": 99,
+   "group_popularity": 99,
+   "notes": "For further information regarding treasury constant maturity data, please refer to the H.15 Statistical Release."
+  },
+  {
+   "id": "GS10",
+   "realtime_start": "2026-11-16",
+   "realtime_end": "2026-11-16",
+   "title": "Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Quoted on an Investment Basis",
+   "observation_start": "1953-04-01",
+   "observation_end": "2026-10-01",
+   "frequency": "Monthly",
+   "frequency_short": "M",
+   "units": "Percent",
+   "units_short": "%",
+   "seasonal_adjustment": "Not Seasonally Adjusted",
+   "seasonal_adjustment_short": "NSA",
+   "last_updated": "2026-11-03 15:18:02-06",
+   "popularity": 80,
+   "group_popularity": 99,
+   "notes": ""
+  }
+ ]
+}

@@ -428,3 +428,128 @@ frequency = "annual"
 provider = "ecb"
 provider_series_code = "GFS/A.N.I9.W0.S13.S1.C.L.LE.GD.T._Z.XDC_R_B1GQ._T.F.V.N._T"
 metadata = { area = "euro area" }
+
+# --- FRED (Federal Reserve Bank of St. Louis) -------------------------------------
+# Needs a free API key in FRED_API_KEY. Symbols and series codes are FRED series
+# ids; find them with `python -m app.cli search fred QUERY`. FRED allows 120
+# requests a minute; collection needs one request per series.
+# Checked 2026-11-16. See docs/providers/fred.md, including its licensing section.
+
+[[providers]]
+name = "fred"
+base_url = "https://api.stlouisfed.org/fred"
+
+[providers.configuration]
+rate_limits = [{ limit = 100, period = "minute" }]
+backoff_base_seconds = 5
+backoff_max_seconds = 60
+auth = { type = "query", name = "api_key", env = "FRED_API_KEY" }
+
+# US Treasury constant maturity yields, in percent (H.15 release).
+
+[[instruments]]
+symbol = "US1M"
+name = "US Treasury 1-month yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "1M" }
+providers = { fred = "DGS1MO" }
+
+[[instruments]]
+symbol = "US3M"
+name = "US Treasury 3-month yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "3M" }
+providers = { fred = "DGS3MO" }
+
+[[instruments]]
+symbol = "US2Y"
+name = "US Treasury 2-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "2Y" }
+providers = { fred = "DGS2" }
+
+[[instruments]]
+symbol = "US5Y"
+name = "US Treasury 5-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "5Y" }
+providers = { fred = "DGS5" }
+
+[[instruments]]
+symbol = "US10Y"
+name = "US Treasury 10-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "10Y" }
+providers = { fred = "DGS10" }
+
+[[instruments]]
+symbol = "US30Y"
+name = "US Treasury 30-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "30Y" }
+providers = { fred = "DGS30" }
+
+# Interest rates, in percent.
+
+[[instruments]]
+symbol = "EFFR"
+name = "Effective federal funds rate"
+asset_type = "interest_rate"
+metadata = { country = "US" }
+providers = { fred = "DFF" }
+
+# US economic indicators. Each period is dated by its first day.
+
+[[indicators]]
+code = "US_CPI"
+name = "US consumer price index, all urban consumers, seasonally adjusted"
+country = "US"
+unit = "index_1982_84_100"
+frequency = "monthly"
+provider = "fred"
+provider_series_code = "CPIAUCSL"
+
+[[indicators]]
+code = "US_UNEMPLOYMENT"
+name = "US unemployment rate, seasonally adjusted"
+country = "US"
+unit = "percent"
+frequency = "monthly"
+provider = "fred"
+provider_series_code = "UNRATE"
+
+[[indicators]]
+code = "US_NONFARM_PAYROLLS"
+name = "US nonfarm payroll employment, seasonally adjusted"
+country = "US"
+unit = "thousands_of_persons"
+frequency = "monthly"
+provider = "fred"
+provider_series_code = "PAYEMS"
+
+[[indicators]]
+code = "US_INDUSTRIAL_PRODUCTION"
+name = "US industrial production index, seasonally adjusted"
+country = "US"
+unit = "index_2017_100"
+frequency = "monthly"
+provider = "fred"
+provider_series_code = "INDPRO"
+
+[[indicators]]
+code = "US_GDP"
+name = "US gross domestic product, seasonally adjusted annual rate"
+country = "US"
+unit = "usd_billions"
+frequency = "quarterly"
+provider = "fred"
+provider_series_code = "GDP"
+
+[[indicators]]
+code = "US_FED_DEBT_GDP"
+name = "US federal debt held by the public and intragovernmental, % of GDP"
+country = "US"
+unit = "percent_of_gdp"
+frequency = "quarterly"
+provider = "fred"
+provider_series_code = "GFDEGDQ188S"

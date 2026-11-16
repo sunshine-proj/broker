@@ -1,6 +1,6 @@
 # Backend Architecture
 
-This document describes the backend as it is built today (through Phase 4C). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
+This document describes the backend as it is built today (through Phase 4). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
 
 ## Request Flow
 
@@ -40,7 +40,7 @@ uvicorn  ->  FastAPI app (app/main.py: create_app)
 | `app/services/ingestion.py`, `validation.py` | Validates normalized provider data and stores it. |
 | `app/services/provider_health.py` | Records provider health and contains provider failures. |
 | `app/services/collection.py` | One collection run for one provider: fetch, validate, store. |
-| `app/providers/twelve_data.py`, `coingecko.py`, `ecb.py` | Provider adapters. |
+| `app/providers/twelve_data.py`, `coingecko.py`, `ecb.py`, `fred.py` | Provider adapters. |
 | `app/cli.py` | Administrative commands: `seed`, `search`, `collect`. |
 | `migrations/` | Alembic environment and revisions. |
 
@@ -137,7 +137,7 @@ Time-series reads take `start` and `end`, return rows with `start <= time < end`
 
 ## Provider Framework
 
-This is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md). Integrated so far: [Twelve Data](providers/twelve_data.md), [CoinGecko](providers/coingecko.md) and the [ECB](providers/ecb.md).
+This is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md). Integrated so far: [Twelve Data](providers/twelve_data.md), [CoinGecko](providers/coingecko.md), the [ECB](providers/ecb.md) and [FRED](providers/fred.md).
 
 ```text
 ProviderFactory.build(provider row)

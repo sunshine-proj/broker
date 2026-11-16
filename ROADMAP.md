@@ -179,12 +179,14 @@ Phase 4 is delivered as four sub-phases, one provider each. Complete, test, and 
 
 ### Phase 4D — FRED
 
-- [ ] Implement FRED adapter.
-- [ ] Implement series observations.
-- [ ] Implement Treasury yield collection.
-- [ ] Implement Federal Funds rate collection.
-- [ ] Implement economic indicator collection, including revised values.
-- [ ] Add provider tests.
+- [x] Implement FRED adapter.
+- [x] Implement series observations.
+- [x] Implement Treasury yield collection.
+- [x] Implement Federal Funds rate collection.
+- [x] Implement economic indicator collection, including revised values.
+- [x] Add provider tests.
+
+Verified with tests against FRED's documented response format. Not yet run against the live API: no key was available. FRED's terms prohibit storing or archiving FRED content; see [docs/providers/fred.md](docs/providers/fred.md).
 
 ### Acceptance Criteria
 
@@ -276,7 +278,7 @@ Phase 4 is delivered as four sub-phases, one provider each. Complete, test, and 
 - [ ] Add dashboard variables.
 - [ ] Add time-range controls.
 - [ ] Add data freshness indicators.
-- [ ] Show the attribution each provider's licence requires (CoinGecko: "Powered by CoinGecko"; ECB: cite the ECB as the source).
+- [ ] Show the attribution each provider's licence requires (CoinGecko: "Powered by CoinGecko"; ECB: cite the ECB as the source; FRED: the API notice).
 - [ ] Version-control dashboard definitions.
 - [ ] Test dashboard queries.
 
