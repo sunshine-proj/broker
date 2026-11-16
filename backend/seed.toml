@@ -53,6 +53,7 @@
 #   # requests then wait for that boundary instead of retrying early.
 #   # type: none (default), query or header. `env` names the environment
 #   # variable that holds the key and must end in _API_KEY or _TOKEN.
+#   # optional = true sends the key only when the variable is set.
 #   auth = { type = "query", name = "apikey", env = "EXAMPLE_API_KEY" }
 #
 # Providers, instruments and indicators are added by the roadmap phase that
@@ -228,3 +229,104 @@ name = "Euro / British Pound"
 asset_type = "forex"
 currency = "GBP"
 providers = { twelve_data = "EUR/GBP" }
+
+# --- CoinGecko -----------------------------------------------------------------
+# Works without a key (keyless public API, about 5 calls a minute, shared by
+# everyone on the same IP address) and with a free Demo key (100 a minute,
+# 10,000 successful calls a month, counted per calendar month). The limits
+# below suit both; with a Demo key the per-minute limit may be raised.
+# Checked 2026-11-16. See docs/providers/coingecko.md.
+#
+# Budget: one quote request covers every coin (up to 250). Polled every
+# 5 minutes that is 8,640 calls a month; dominance hourly adds 720 and a daily
+# history refresh of 10 coins adds 300: 9,660 of 10,000.
+
+[[providers]]
+name = "coingecko"
+base_url = "https://api.coingecko.com/api/v3"
+
+[providers.configuration]
+rate_limits = [
+    { limit = 5, period = "minute" },
+    { limit = 10000, period = "month", resets_on_boundary = true },
+]
+# The keyless API asks for 60 seconds after HTTP 429 (Retry-After).
+rate_limit_max_wait_seconds = 65
+max_retries = 2
+backoff_base_seconds = 15
+backoff_max_seconds = 65
+auth = { type = "header", name = "x-cg-demo-api-key", env = "COINGECKO_API_KEY", optional = true }
+
+# Crypto: symbol is BASE/QUOTE and currency is the quote currency. The
+# CoinGecko symbol is <coin id>/<vs currency>; find ids with
+# `python -m app.cli search coingecko QUERY`.
+
+[[instruments]]
+symbol = "BTC/USD"
+name = "Bitcoin"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "bitcoin/usd" }
+
+[[instruments]]
+symbol = "ETH/USD"
+name = "Ethereum"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "ethereum/usd" }
+
+[[instruments]]
+symbol = "USDT/USD"
+name = "Tether"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "tether/usd" }
+
+[[instruments]]
+symbol = "BNB/USD"
+name = "BNB"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "binancecoin/usd" }
+
+[[instruments]]
+symbol = "XRP/USD"
+name = "XRP"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "ripple/usd" }
+
+[[instruments]]
+symbol = "USDC/USD"
+name = "USD Coin"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "usd-coin/usd" }
+
+[[instruments]]
+symbol = "SOL/USD"
+name = "Solana"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "solana/usd" }
+
+[[instruments]]
+symbol = "TRX/USD"
+name = "TRON"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "tron/usd" }
+
+[[instruments]]
+symbol = "DOGE/USD"
+name = "Dogecoin"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "dogecoin/usd" }
+
+[[instruments]]
+symbol = "ADA/USD"
+name = "Cardano"
+asset_type = "crypto"
+currency = "USD"
+providers = { coingecko = "cardano/usd" }

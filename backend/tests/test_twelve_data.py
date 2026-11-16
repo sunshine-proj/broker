@@ -419,3 +419,11 @@ def test_shipped_seed_configures_twelve_data_within_its_budget(settings: Setting
     assert len(listed) * 26 + len(forex) * 96 <= limits["day"]
     # Forex pairs are quoted in the pair's quote currency.
     assert all(i.symbol.split("/")[1] == i.currency for i in forex)
+
+
+async def test_only_the_requested_observation_types_are_returned() -> None:
+    api = Api(recorded("quote_batch"))
+
+    quotes = await provider(api).fetch_quotes(["AAPL", "EUR/USD", "SPY"], {ObservationType.RATE})
+
+    assert [q.provider_symbol for q in quotes] == ["EUR/USD"]

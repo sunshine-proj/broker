@@ -87,6 +87,8 @@ Collect:
 - Historical prices
 - Exchange-specific prices (from Phase 8, with Binance)
 
+Prices from CoinGecko are averages across exchanges, served from a cache of 1 to 5 minutes. They are stored as indicative and delayed.
+
 ### 3.4 Forex
 
 Collect:
@@ -292,6 +294,8 @@ Jobs for exchange-traded instruments run only during the relevant exchange's tra
 ### FR-008: Grafana Integration
 
 Grafana must visualize stored financial information.
+
+Dashboards must show the attribution a provider's licence requires for the data they display.
 
 Initial dashboards:
 
@@ -582,7 +586,9 @@ Default intervals are set so that the default instrument set fits each provider'
 
 | Data Type | Provider | Default Interval | Constraint |
 | --- | --- | --- | --- |
-| Crypto prices and market data | CoinGecko | 5 minutes | Free plan allows 10,000 calls per month; one batched call every 5 minutes uses about 8,640 |
+| Crypto prices and market data | CoinGecko | 5 minutes | Free Demo plan allows 10,000 calls per month; one batched call every 5 minutes uses 8,640 |
+| Crypto dominance | CoinGecko | 1 hour | 720 calls per month |
+| Crypto price history | CoinGecko | Daily | One call per coin: 300 per month for 10 coins. Only values older than 2 days, which CoinGecko no longer revises. |
 | Exchange-specific crypto prices | Binance (Phase 8) | 1 minute | Public market-data limits are generous; availability varies by region |
 | Intraday forex | Twelve Data | 15 minutes | Shares the Twelve Data daily quota |
 | Stocks and ETFs | Twelve Data | 15 minutes, during trading hours | Shares the Twelve Data daily quota |

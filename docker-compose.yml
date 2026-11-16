@@ -37,6 +37,7 @@ services:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       # Provider credentials. Optional: a provider without its key reports itself as down.
       TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy

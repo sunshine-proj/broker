@@ -6,14 +6,16 @@ collection engine (roadmap Phase 5), which calls these functions.
 """
 
 import logging
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime
 
 from app.models import Provider as ProviderRow
-from app.models.enums import CandleInterval
+from app.models.enums import CandleInterval, ObservationType
+from app.providers.base import Provider
 from app.providers.factory import ProviderFactory
 from app.repositories.interfaces import InstrumentRepository
-from app.schemas.normalized import Candle, Quote
+from app.schemas.normalized import Quote
 from app.services.ingestion import IngestionResult, IngestionService
 from app.services.provider_health import ProviderHealthService
 
@@ -58,14 +60,21 @@ class CollectionService:
         mappings = await self._instruments.list_mappings(provider.id)
         return [mapping.provider_symbol for mapping in mappings]
 
-    async def collect_quotes(self, provider: ProviderRow) -> CollectionOutcome:
-        """Fetch and store the latest value of every enabled instrument mapped to the provider."""
+    async def collect_quotes(
+        self,
+        provider: ProviderRow,
+        observation_types: Collection[ObservationType] | None = None,
+    ) -> CollectionOutcome:
+        """Fetch and store the latest value of every enabled instrument mapped to the provider.
+
+        `observation_types` limits what is fetched; None means everything the provider offers.
+        """
         symbols = await self._symbols(provider)
         if not symbols:
             return CollectionOutcome(provider.name, 0, True, IngestionResult())
 
         async def fetch() -> list[Quote]:
-            return await self._factory.build(provider).fetch_quotes(symbols)
+            return await self._factory.build(provider).fetch_quotes(symbols, observation_types)
 
         quotes = await self._health.guard(provider.id, fetch)
         if quotes is None:
@@ -81,26 +90,59 @@ class CollectionService:
 
         A symbol whose request fails is skipped; the remaining symbols are still collected.
         """
+
+        async def collect(adapter: Provider, symbol: str) -> IngestionResult:
+            candles = await adapter.fetch_candles(symbol, interval, start, end)
+            return await self._ingestion.ingest_candles(provider.id, candles)
+
+        outcome = await self._per_symbol(provider, collect)
+        logger.info(
+            "Candles collected",
+            extra={
+                "provider": provider.name,
+                "interval": interval.value,
+                **outcome.result.__dict__,
+            },
+        )
+        return outcome
+
+    async def collect_quote_history(
+        self, provider: ProviderRow, start: datetime, end: datetime
+    ) -> CollectionOutcome:
+        """Fetch and store past values of every enabled instrument mapped to the provider.
+
+        A symbol whose request fails is skipped; the remaining symbols are still collected.
+        """
+
+        async def collect(adapter: Provider, symbol: str) -> IngestionResult:
+            quotes = await adapter.fetch_quote_history(symbol, start, end)
+            return await self._ingestion.ingest_quotes(provider.id, quotes)
+
+        outcome = await self._per_symbol(provider, collect)
+        logger.info(
+            "Quote history collected", extra={"provider": provider.name, **outcome.result.__dict__}
+        )
+        return outcome
+
+    async def _per_symbol(
+        self,
+        provider: ProviderRow,
+        collect: Callable[[Provider, str], Awaitable[IngestionResult]],
+    ) -> CollectionOutcome:
+        """Run `collect` for each mapped symbol, containing each symbol's provider failure."""
         symbols = await self._symbols(provider)
         results: list[IngestionResult] = []
         succeeded = True
 
         for symbol in symbols:
 
-            async def fetch(symbol: str = symbol) -> list[Candle]:
-                return await self._factory.build(provider).fetch_candles(
-                    symbol, interval, start, end
-                )
+            async def run(symbol: str = symbol) -> IngestionResult:
+                return await collect(self._factory.build(provider), symbol)
 
-            candles = await self._health.guard(provider.id, fetch)
-            if candles is None:
+            result = await self._health.guard(provider.id, run)
+            if result is None:
                 succeeded = False
                 continue
-            results.append(await self._ingestion.ingest_candles(provider.id, candles))
+            results.append(result)
 
-        result = _combine(results)
-        logger.info(
-            "Candles collected",
-            extra={"provider": provider.name, "interval": interval.value, **result.__dict__},
-        )
-        return CollectionOutcome(provider.name, len(symbols), succeeded, result)
+        return CollectionOutcome(provider.name, len(symbols), succeeded, _combine(results))

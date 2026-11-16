@@ -88,7 +88,9 @@ class ExampleProvider(Provider):
     name = "example"
     capabilities = frozenset({Capability.QUOTES})
 
-    async def fetch_quotes(self, symbols: Sequence[str]) -> list[Quote]:
+    async def fetch_quotes(
+        self, symbols: Sequence[str], observation_types: object = None
+    ) -> list[Quote]:
         raw = await self._client.get_json(
             "/quotes", {"symbols": ",".join(symbols)}, cost=len(symbols)
         )

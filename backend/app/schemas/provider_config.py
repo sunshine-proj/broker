@@ -85,6 +85,9 @@ class ProviderAuth(_ConfigModel):
     env: str | None = None
     # Text put before the credential, for example "Bearer ".
     prefix: str = ""
+    # Send the credential when its variable is set, and work without it when
+    # not, for providers that also serve anonymous requests at lower limits.
+    optional: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> Self:

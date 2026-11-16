@@ -40,7 +40,15 @@ class RateBudgetExceededError(ProviderError):
 
 
 class ProviderAuthError(ProviderError):
-    """The provider rejected the credential (401 or 403)."""
+    """The provider answered 401 or 403, normally a rejected credential.
+
+    Some providers use these statuses for other refusals too; `body` (the
+    decoded JSON, if any) lets an adapter tell them apart.
+    """
+
+    def __init__(self, provider: str, message: str, *, body: object = None) -> None:
+        super().__init__(provider, message)
+        self.body = body
 
 
 class ProviderResponseError(ProviderError):

@@ -159,14 +159,14 @@ Phase 4 is delivered as four sub-phases, one provider each. Complete, test, and 
 
 ### Phase 4B — CoinGecko
 
-- [ ] Implement CoinGecko adapter.
-- [ ] Implement cryptocurrency listings.
-- [ ] Implement current price collection.
-- [ ] Implement market capitalization collection.
-- [ ] Implement trading volume collection.
-- [ ] Implement supply and dominance collection.
-- [ ] Implement historical price collection.
-- [ ] Add provider tests.
+- [x] Implement CoinGecko adapter.
+- [x] Implement cryptocurrency listings.
+- [x] Implement current price collection.
+- [x] Implement market capitalization collection.
+- [x] Implement trading volume collection.
+- [x] Implement supply and dominance collection.
+- [x] Implement historical price collection.
+- [x] Add provider tests.
 
 ### Phase 4C — ECB
 
@@ -276,6 +276,7 @@ Phase 4 is delivered as four sub-phases, one provider each. Complete, test, and 
 - [ ] Add dashboard variables.
 - [ ] Add time-range controls.
 - [ ] Add data freshness indicators.
+- [ ] Show the attribution each provider's licence requires (CoinGecko: "Powered by CoinGecko").
 - [ ] Version-control dashboard definitions.
 - [ ] Test dashboard queries.
 

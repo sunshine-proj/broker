@@ -3,8 +3,9 @@
 Usage:
     python -m app.cli seed [--file PATH]
     python -m app.cli search PROVIDER QUERY
-    python -m app.cli collect quotes PROVIDER
+    python -m app.cli collect quotes PROVIDER [--types price,market_cap,...]
     python -m app.cli collect candles PROVIDER [--interval 1day] [--days 30]
+    python -m app.cli collect history PROVIDER [--days 30]
 """
 
 import argparse
@@ -13,6 +14,7 @@ import logging
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -23,7 +25,7 @@ from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.database import create_engine, create_session_factory
 from app.models import Provider as ProviderRow
-from app.models.enums import CandleInterval
+from app.models.enums import CandleInterval, ObservationType
 from app.providers.errors import ProviderError
 from app.providers.factory import ProviderFactory
 from app.repositories.economic_data import SqlEconomicDataRepository
@@ -41,6 +43,17 @@ logger = logging.getLogger(__name__)
 
 class CommandError(Exception):
     """A command could not run; the message is shown to the operator."""
+
+
+@dataclass(frozen=True)
+class CollectRequest:
+    # quotes, candles or history
+    kind: str
+    provider: str
+    interval: CandleInterval = CandleInterval.DAY_1
+    days: int = 30
+    # Observation types to fetch with `quotes`; None means all.
+    types: frozenset[ObservationType] | None = None
 
 
 @asynccontextmanager
@@ -93,14 +106,12 @@ async def search(settings: Settings, provider_name: str, query: str) -> None:
         )
 
 
-async def collect(
-    settings: Settings, kind: str, provider_name: str, interval: CandleInterval, days: int
-) -> CollectionOutcome:
+async def collect(settings: Settings, request: CollectRequest) -> CollectionOutcome:
     """Run one collection for a provider and store the result."""
     factory = ProviderFactory(settings)
     try:
         async with _session(settings) as session:
-            provider = await _provider(session, provider_name)
+            provider = await _provider(session, request.provider)
             instruments = SqlInstrumentRepository(session)
             service = CollectionService(
                 factory=factory,
@@ -112,13 +123,14 @@ async def collect(
                 ),
                 health=ProviderHealthService(SqlProviderHealthRepository(session)),
             )
-            if kind == "quotes":
-                outcome = await service.collect_quotes(provider)
+            end = datetime.now(UTC)
+            start = end - timedelta(days=request.days)
+            if request.kind == "quotes":
+                outcome = await service.collect_quotes(provider, request.types)
+            elif request.kind == "candles":
+                outcome = await service.collect_candles(provider, request.interval, start, end)
             else:
-                end = datetime.now(UTC)
-                outcome = await service.collect_candles(
-                    provider, interval, end - timedelta(days=days), end
-                )
+                outcome = await service.collect_quote_history(provider, start, end)
             # Committed on failure too: the provider's health record must be kept.
             await session.commit()
             return outcome
@@ -141,6 +153,11 @@ def _build_parser() -> argparse.ArgumentParser:
     kinds = collect_parser.add_subparsers(dest="kind", required=True)
     quotes_parser = kinds.add_parser("quotes", help="latest values of the mapped instruments")
     quotes_parser.add_argument("provider")
+    quotes_parser.add_argument(
+        "--types",
+        type=_observation_types,
+        help="comma-separated observation types to fetch (default: all the provider offers)",
+    )
     candles_parser = kinds.add_parser("candles", help="closed candles of the mapped instruments")
     candles_parser.add_argument("provider")
     candles_parser.add_argument(
@@ -153,7 +170,20 @@ def _build_parser() -> argparse.ArgumentParser:
     candles_parser.add_argument(
         "--days", type=int, default=30, help="how many days back to fetch (default: 30)"
     )
+    history_parser = kinds.add_parser("history", help="past values of the mapped instruments")
+    history_parser.add_argument("provider")
+    history_parser.add_argument(
+        "--days", type=int, default=30, help="how many days back to fetch (default: 30)"
+    )
     return parser
+
+
+def _observation_types(value: str) -> frozenset[ObservationType]:
+    try:
+        return frozenset(ObservationType(item.strip()) for item in value.split(",") if item.strip())
+    except ValueError as exc:
+        allowed = ", ".join(t.value for t in ObservationType)
+        raise argparse.ArgumentTypeError(f"unknown observation type; use: {allowed}") from exc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -167,9 +197,14 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "search":
             asyncio.run(search(settings, args.provider, args.query))
         else:
-            interval = getattr(args, "interval", CandleInterval.DAY_1)
-            days = getattr(args, "days", 30)
-            outcome = asyncio.run(collect(settings, args.kind, args.provider, interval, days))
+            request = CollectRequest(
+                kind=args.kind,
+                provider=args.provider,
+                interval=getattr(args, "interval", CandleInterval.DAY_1),
+                days=getattr(args, "days", 30),
+                types=getattr(args, "types", None),
+            )
+            outcome = asyncio.run(collect(settings, request))
             # A provider failure is already logged and recorded; report it in the exit code.
             return 0 if outcome.succeeded else 2
     except (SeedError, CommandError) as exc:

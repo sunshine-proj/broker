@@ -54,12 +54,23 @@ class StubProvider:
         self.failing = failing
         self.quote_requests: list[list[str]] = []
         self.candle_requests: list[str] = []
+        self.history_requests: list[str] = []
+        self.requested_types: Any = None
 
-    async def fetch_quotes(self, symbols: Sequence[str]) -> list[Quote]:
+    async def fetch_quotes(
+        self, symbols: Sequence[str], observation_types: Any = None
+    ) -> list[Quote]:
         self.quote_requests.append(list(symbols))
+        self.requested_types = observation_types
         if self.failing:
             raise ProviderUnavailableError("example", "request timed out")
         return [quote(symbol) for symbol in symbols]
+
+    async def fetch_quote_history(self, symbol: str, *args: Any) -> list[Quote]:
+        self.history_requests.append(symbol)
+        if symbol in self.failing:
+            raise ProviderUnavailableError("example", "request timed out")
+        return [quote(symbol)]
 
     async def fetch_candles(self, symbol: str, *args: Any) -> list[Candle]:
         self.candle_requests.append(symbol)
@@ -186,6 +197,24 @@ async def test_candles_continue_past_a_failing_symbol() -> None:
     ]
 
 
+async def test_requested_observation_types_reach_the_provider() -> None:
+    world = build(["AAPL"])
+
+    await world.service.collect_quotes(PROVIDER, {ObservationType.PRICE})
+
+    assert world.provider.requested_types == {ObservationType.PRICE}
+
+
+async def test_quote_history_continues_past_a_failing_symbol() -> None:
+    world = build(["bitcoin/usd", "broken/usd", "ethereum/usd"], failing={"broken/usd"})
+
+    outcome = await world.service.collect_quote_history(PROVIDER, NOW, NOW)
+
+    assert world.provider.history_requests == ["bitcoin/usd", "broken/usd", "ethereum/usd"]
+    assert [q.provider_symbol for q in world.ingestion.quotes] == ["bitcoin/usd", "ethereum/usd"]
+    assert (outcome.requested, outcome.succeeded, outcome.result.written) == (3, False, 2)
+
+
 # --- Command line --------------------------------------------------------------------
 
 
@@ -201,8 +230,8 @@ def test_collect_exit_code_reports_provider_failure(
 ) -> None:
     calls = []
 
-    async def fake_collect(settings: Settings, *args: Any) -> CollectionOutcome:
-        calls.append(args)
+    async def fake_collect(settings: Settings, request: cli.CollectRequest) -> CollectionOutcome:
+        calls.append(request)
         return CollectionOutcome("example", 1, succeeded, IngestionResult())
 
     monkeypatch.setattr(cli, "collect", fake_collect)
@@ -210,7 +239,7 @@ def test_collect_exit_code_reports_provider_failure(
     assert (
         cli.main(["collect", "candles", "example", "--interval", "1h", "--days", "7"]) == exit_code
     )
-    assert calls == [("candles", "example", CandleInterval.HOUR_1, 7)]
+    assert calls == [cli.CollectRequest("candles", "example", CandleInterval.HOUR_1, 7)]
 
 
 def test_collect_quotes_uses_default_candle_arguments(
@@ -218,14 +247,24 @@ def test_collect_quotes_uses_default_candle_arguments(
 ) -> None:
     calls = []
 
-    async def fake_collect(settings: Settings, *args: Any) -> CollectionOutcome:
-        calls.append(args)
+    async def fake_collect(settings: Settings, request: cli.CollectRequest) -> CollectionOutcome:
+        calls.append(request)
         return CollectionOutcome("example", 1, True, IngestionResult())
 
     monkeypatch.setattr(cli, "collect", fake_collect)
 
     assert cli.main(["collect", "quotes", "example"]) == 0
-    assert calls == [("quotes", "example", CandleInterval.DAY_1, 30)]
+    assert cli.main(["collect", "quotes", "example", "--types", "price, dominance"]) == 0
+    assert cli.main(["collect", "history", "example", "--days", "90"]) == 0
+    assert calls == [
+        cli.CollectRequest("quotes", "example"),
+        cli.CollectRequest(
+            "quotes",
+            "example",
+            types=frozenset({ObservationType.PRICE, ObservationType.DOMINANCE}),
+        ),
+        cli.CollectRequest("history", "example", days=90),
+    ]
 
 
 def test_unknown_provider_is_reported(monkeypatch: pytest.MonkeyPatch, quiet_cli: None) -> None:
@@ -240,3 +279,8 @@ def test_unknown_provider_is_reported(monkeypatch: pytest.MonkeyPatch, quiet_cli
 def test_invalid_interval_is_refused_by_the_parser(quiet_cli: None) -> None:
     with pytest.raises(SystemExit):
         cli.main(["collect", "candles", "example", "--interval", "7min"])
+
+
+def test_invalid_observation_type_is_refused_by_the_parser(quiet_cli: None) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["collect", "quotes", "example", "--types", "price,mood"])

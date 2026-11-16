@@ -63,7 +63,11 @@ class ProviderHttpClient:
     ) -> None:
         if not base_url.startswith("https://"):
             raise ProviderConfigurationError(provider, "base_url must use https")
-        if settings.auth.type is not AuthType.NONE and credential is None:
+        if (
+            settings.auth.type is not AuthType.NONE
+            and credential is None
+            and not settings.auth.optional
+        ):
             raise ProviderConfigurationError(
                 provider, f"environment variable {settings.auth.env} is not set"
             )
@@ -154,14 +158,16 @@ class ProviderHttpClient:
                 "provider rate limit reached (HTTP 429)",
                 retry_after=_parse_retry_after(response.headers.get("Retry-After")),
             )
-        if status in (401, 403):
-            return ProviderAuthError(self.provider, f"credential rejected (HTTP {status})")
         if status >= 500:
             return ProviderUnavailableError(self.provider, f"server error (HTTP {status})")
         try:
             body = json.loads(response.text, parse_float=Decimal)
         except ValueError:
             body = None
+        if status in (401, 403):
+            return ProviderAuthError(
+                self.provider, f"credential rejected (HTTP {status})", body=body
+            )
         return ProviderResponseError(
             self.provider, f"unexpected response (HTTP {status})", status_code=status, body=body
         )

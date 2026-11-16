@@ -375,3 +375,35 @@ async def test_retry_after_header_takes_precedence_over_the_boundary() -> None:
     await client.get_json("/quotes")
 
     assert clock.sleeps == [5]
+
+
+OPTIONAL_AUTH = {**HEADER_AUTH, "optional": True}
+
+
+async def test_optional_credential_is_sent_when_set() -> None:
+    recorder = Recorder(ok())
+    client = make_client(recorder, credential=SECRET, auth=OPTIONAL_AUTH)
+
+    await client.get_json("/quotes")
+
+    assert recorder.requests[0].headers["Authorization"] == f"Bearer {SECRET}"
+
+
+async def test_optional_credential_may_be_absent() -> None:
+    recorder = Recorder(ok())
+    client = make_client(recorder, auth=OPTIONAL_AUTH)
+
+    await client.get_json("/quotes")
+
+    assert "Authorization" not in recorder.requests[0].headers
+
+
+async def test_auth_error_keeps_the_response_body() -> None:
+    body = {"status": {"error_code": 10012, "error_message": "beyond range"}}
+    client = make_client(Recorder(httpx.Response(401, json=body)))
+
+    with pytest.raises(ProviderAuthError) as raised:
+        await client.get_json("/history")
+
+    assert raised.value.body == body
+    assert "beyond range" not in str(raised.value)

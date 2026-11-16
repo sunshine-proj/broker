@@ -36,13 +36,13 @@ class ExampleProvider(Provider):
         return [Quote(...) for item in parsed.data]
 ```
 
-A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`. The first real adapter, [Twelve Data](twelve_data.md), is a fuller example.
+A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`. The real adapters, [Twelve Data](twelve_data.md) and [CoinGecko](coingecko.md), are fuller examples.
 
 Add the module to the imports in `backend/app/providers/__init__.py`, which is what registers it.
 
 ### Rules
 
-1. **Implement only what the provider offers.** Override `fetch_quotes`, `fetch_candles`, `fetch_indicator` or `search_symbols` and list the matching `Capability`. Methods left alone raise `UnsupportedOperationError`.
+1. **Implement only what the provider offers.** Override `fetch_quotes`, `fetch_quote_history`, `fetch_candles`, `fetch_indicator` or `search_symbols` and list the matching `Capability`. Methods left alone raise `UnsupportedOperationError`.
 2. **Return normalized schemas only.** `Quote`, `Candle`, `IndicatorValue` and `SymbolMatch` from `app/schemas/normalized.py`. No provider-specific shape leaves the adapter.
 3. **Model the provider's response with Pydantic and validate it** with `self._validate(Model, raw)`. A response that does not match becomes a `ProviderResponseError`. This includes error bodies sent with HTTP 200.
 4. **Parse values with the helpers in `app/providers/parsing.py`.**
@@ -52,10 +52,12 @@ Add the module to the imports in `backend/app/providers/__init__.py`, which is w
    - `parse_utc_date` for date-only values.
    - `parse_epoch_seconds` and `parse_epoch_milliseconds` for epoch times.
 5. **Set every field explicitly.** State `observation_type`, `unit`, `freshness`, `quote_kind` and, for money amounts, `currency`, from the provider's documentation. Do not rely on defaults or assume USD.
-6. **Pass the real `cost`.** If the provider charges one credit per symbol, a batched request for ten symbols is `cost=10`.
-7. **Prefer batched requests** where the provider supports them.
-8. **Never fill gaps.** A missing value is omitted, not estimated or carried forward.
-9. **Do not touch the database.** The adapter returns data; the ingestion service stores it.
+6. **Honour `observation_types`** in `fetch_quotes`: return only those types, and skip requests that would only serve other types.
+7. **Pass the real `cost`.** If the provider charges one credit per symbol, a batched request for ten symbols is `cost=10`.
+8. **Prefer batched requests** where the provider supports them.
+9. **Never fill gaps.** A missing value is omitted, not estimated or carried forward.
+10. **Take only settled history.** If the provider revises recent values, leave them out of history; stored observations cannot be corrected later.
+11. **Do not touch the database.** The adapter returns data; the ingestion service stores it.
 
 ### What Each Normalized Field Means
 
@@ -90,6 +92,7 @@ auth = { type = "query", name = "apikey", env = "EXAMPLE_API_KEY" }
 - `rate_limits` must be the provider's documented quota for the plan in use. List every limit that applies. Mark a limit `resets_on_boundary = true` when the provider restores it at the start of each period (on the minute, at midnight UTC).
 - `max_batch_size` caps the symbols per batched request. Set it to no more than the smallest per-period limit when each symbol costs a credit.
 - `auth.env` is the name of an environment variable, never the key. It must end in `_API_KEY` or `_TOKEN`.
+- `auth.optional = true` makes the key optional, for providers that also serve anonymous requests.
 - Add the variable to `.env.example` (empty), to the `backend-environment` block in `docker-compose.yml`, and to the configuration table in the README.
 
 Then add the provider's instruments and indicators to the seed file, with the symbol the provider uses for each, sized to fit the rate limits (PRD FR-011).

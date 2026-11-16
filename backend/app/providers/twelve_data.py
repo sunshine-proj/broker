@@ -4,7 +4,7 @@ API facts this adapter relies on are recorded in docs/providers/twelve_data.md.
 """
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import batched
@@ -130,7 +130,11 @@ class TwelveDataProvider(Provider):
         super().__init__(client)
         self._clock = clock
 
-    async def fetch_quotes(self, symbols: Sequence[str]) -> list[Quote]:
+    async def fetch_quotes(
+        self,
+        symbols: Sequence[str],
+        observation_types: Collection[ObservationType] | None = None,
+    ) -> list[Quote]:
         """Latest price of each symbol, one credit per symbol.
 
         A symbol the provider reports an error for is logged and left out; the
@@ -150,7 +154,9 @@ class TwelveDataProvider(Provider):
                 raise ProviderResponseError(self.name, "quote response is not an object")
             for symbol in batch:
                 quote = self._to_quote(symbol, items.get(symbol))
-                if quote is not None:
+                if quote is not None and (
+                    observation_types is None or quote.observation_type in observation_types
+                ):
                     quotes.append(quote)
         return quotes
 

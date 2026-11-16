@@ -5,14 +5,14 @@ only the normalized schemas from `app.schemas.normalized`. No provider-specific
 response shape leaves an adapter.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import ClassVar
 
 from pydantic import BaseModel, ValidationError
 
-from app.models.enums import CandleInterval
+from app.models.enums import CandleInterval, ObservationType
 from app.providers.errors import ProviderResponseError, UnsupportedOperationError
 from app.providers.http import ProviderHttpClient
 from app.schemas.normalized import Candle, IndicatorValue, Quote, SymbolMatch
@@ -23,6 +23,7 @@ class Capability(StrEnum):
     CANDLES = "candles"
     INDICATORS = "indicators"
     SYMBOL_SEARCH = "symbol_search"
+    QUOTE_HISTORY = "quote_history"
 
 
 class Provider:
@@ -33,9 +34,21 @@ class Provider:
     def __init__(self, client: ProviderHttpClient) -> None:
         self._client = client
 
-    async def fetch_quotes(self, symbols: Sequence[str]) -> list[Quote]:
-        """Latest values for the given provider symbols."""
+    async def fetch_quotes(
+        self,
+        symbols: Sequence[str],
+        observation_types: Collection[ObservationType] | None = None,
+    ) -> list[Quote]:
+        """Latest values for the given provider symbols.
+
+        `observation_types` limits what is fetched; None means everything the
+        adapter offers. An adapter may save requests by skipping a type.
+        """
         raise UnsupportedOperationError(self.name, "quotes are not supported")
+
+    async def fetch_quote_history(self, symbol: str, start: datetime, end: datetime) -> list[Quote]:
+        """Past values of one symbol with start <= time < end."""
+        raise UnsupportedOperationError(self.name, "quote history is not supported")
 
     async def fetch_candles(
         self, symbol: str, interval: CandleInterval, start: datetime, end: datetime
