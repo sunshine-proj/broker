@@ -195,9 +195,44 @@ Next is Phase 4B (CoinGecko). Its free Demo plan needs its own API key; if you a
 
 
 
+I've built Phase 4D (FRED), but unlike the other three providers it hasn't been run against the live API, because there's no FRED key. With it, all four Phase 4 providers are in: 311 tests pass, Ruff is clean, and every Phase 4 task is ticked.
+
+Decision needed: FRED's terms may rule it out
+FRED's full terms of use prohibit users to "store, cache, or archive any portion of the FRED® Services or FRED® Content", and they state that this covers the API. Keeping history permanently is what this platform does, so the two conflict directly.
+
+The series I picked are all published by US government agencies, so you could get the same data from them instead of FRED:
+
+Data	Original source
+Treasury yields	US Treasury / Federal Reserve H.15
+Federal funds rate	New York Fed (already Phase 8)
+CPI, unemployment, payrolls	BLS
+GDP	BEA
+Your options:
+
+Keep FRED for personal evaluation only: it's convenient, but the archive conflicts with its terms.
+Source the series from their publishers: this needs new adapters. I'd recommend this if the platform is meant to keep its history long term.
+FRED also requires a displayed notice ("This product uses the FRED® API…") and bans using its data to train machine-learning systems. I've added the notice to the Phase 7 attribution task and recorded the open question in the PRD and docs/providers/fred.md.
+
+What was verified, and what wasn't
+Series IDs and values: all 13 series exist with current data. I checked them through FRED's keyless CSV download.
+Test fixtures are not real API recordings. They follow FRED's documented response format, filled with real values from the CSV (including the 11 November market holiday, which FRED reports as a missing value). The roadmap entry for 4D says this.
+No key: collection fails cleanly. The provider is recorded as down with the reason "FRED_API_KEY is not set", the command exits with 2, and the other providers keep working.
+Live check, if you keep FRED: add FRED_API_KEY to .env, then run:
+
+docker compose run --rm migrate python -m app.cli collect quotes fred
+docker compose run --rm migrate python -m app.cli collect indicators fred
+After that I'd replace the fixtures with real recordings.
+What was added
+Adapter: fred.py collects six Treasury yields (stored as yields), the effective federal funds rate (stored as a rate), and six US indicators: CPI, unemployment, payrolls, industrial production, GDP, and federal debt to GDP.
+Revisions: each indicator value records when FRED published it, so a later revision can be told from the original. Earlier vintages from before collection starts aren't imported.
+Key handling: FRED answers an invalid key with HTTP 400, not 401, so the adapter recognises that error and reports it as a credential problem.
+Config: FRED_API_KEY was added to .env.example, Compose, the seed file and the README.
+Phase 5 (scheduled collection) is next, and doesn't depend on the FRED decision.
 
 
 
+
+===========================================
 
 
 
