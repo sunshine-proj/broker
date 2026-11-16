@@ -407,3 +407,16 @@ async def test_auth_error_keeps_the_response_body() -> None:
 
     assert raised.value.body == body
     assert "beyond range" not in str(raised.value)
+
+
+async def test_empty_body_is_none_when_allowed() -> None:
+    client = make_client(Recorder(httpx.Response(200, content=b"")))
+
+    assert await client.get_json("/data", allow_empty=True) is None
+
+
+async def test_empty_body_is_an_error_by_default() -> None:
+    client = make_client(Recorder(httpx.Response(200, content=b"  ")))
+
+    with pytest.raises(ProviderResponseError, match="not valid JSON"):
+        await client.get_json("/data")

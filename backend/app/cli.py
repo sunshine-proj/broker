@@ -6,6 +6,7 @@ Usage:
     python -m app.cli collect quotes PROVIDER [--types price,market_cap,...]
     python -m app.cli collect candles PROVIDER [--interval 1day] [--days 30]
     python -m app.cli collect history PROVIDER [--days 30]
+    python -m app.cli collect indicators PROVIDER [--days 730]
 """
 
 import argparse
@@ -47,7 +48,7 @@ class CommandError(Exception):
 
 @dataclass(frozen=True)
 class CollectRequest:
-    # quotes, candles or history
+    # quotes, candles, history or indicators
     kind: str
     provider: str
     interval: CandleInterval = CandleInterval.DAY_1
@@ -113,13 +114,15 @@ async def collect(settings: Settings, request: CollectRequest) -> CollectionOutc
         async with _session(settings) as session:
             provider = await _provider(session, request.provider)
             instruments = SqlInstrumentRepository(session)
+            economic_data = SqlEconomicDataRepository(session)
             service = CollectionService(
                 factory=factory,
                 instruments=instruments,
+                economic_data=economic_data,
                 ingestion=IngestionService(
                     instruments=instruments,
                     market_data=SqlMarketDataRepository(session),
-                    economic_data=SqlEconomicDataRepository(session),
+                    economic_data=economic_data,
                 ),
                 health=ProviderHealthService(SqlProviderHealthRepository(session)),
             )
@@ -129,8 +132,10 @@ async def collect(settings: Settings, request: CollectRequest) -> CollectionOutc
                 outcome = await service.collect_quotes(provider, request.types)
             elif request.kind == "candles":
                 outcome = await service.collect_candles(provider, request.interval, start, end)
-            else:
+            elif request.kind == "history":
                 outcome = await service.collect_quote_history(provider, start, end)
+            else:
+                outcome = await service.collect_indicators(provider, start, end)
             # Committed on failure too: the provider's health record must be kept.
             await session.commit()
             return outcome
@@ -174,6 +179,14 @@ def _build_parser() -> argparse.ArgumentParser:
     history_parser.add_argument("provider")
     history_parser.add_argument(
         "--days", type=int, default=30, help="how many days back to fetch (default: 30)"
+    )
+    indicators_parser = kinds.add_parser("indicators", help="economic indicator values")
+    indicators_parser.add_argument("provider")
+    indicators_parser.add_argument(
+        "--days",
+        type=int,
+        default=730,
+        help="how many days back to fetch (default: 730, enough for quarterly and annual series)",
     )
     return parser
 

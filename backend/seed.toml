@@ -193,14 +193,15 @@ exchange = "ARCX"
 currency = "USD"
 providers = { twelve_data = "VTI" }
 
-# Forex: symbol is BASE/QUOTE and currency is the quote currency.
+# Forex: symbol is BASE/QUOTE and currency is the quote currency. EUR/USD and
+# EUR/GBP also carry the ECB's daily reference rate (see the ECB section).
 
 [[instruments]]
 symbol = "EUR/USD"
 name = "Euro / US Dollar"
 asset_type = "forex"
 currency = "USD"
-providers = { twelve_data = "EUR/USD" }
+providers = { twelve_data = "EUR/USD", ecb = "EXR/D.USD.EUR.SP00.A" }
 
 [[instruments]]
 symbol = "GBP/USD"
@@ -228,7 +229,7 @@ symbol = "EUR/GBP"
 name = "Euro / British Pound"
 asset_type = "forex"
 currency = "GBP"
-providers = { twelve_data = "EUR/GBP" }
+providers = { twelve_data = "EUR/GBP", ecb = "EXR/D.GBP.EUR.SP00.A" }
 
 # --- CoinGecko -----------------------------------------------------------------
 # Works without a key (keyless public API, about 5 calls a minute, shared by
@@ -330,3 +331,100 @@ name = "Cardano"
 asset_type = "crypto"
 currency = "USD"
 providers = { coingecko = "cardano/usd" }
+
+# --- European Central Bank --------------------------------------------------------
+# ECB Data Portal (SDMX). No key. Symbols and series codes are
+# <dataflow>/<series key>; series can be browsed at https://data.ecb.europa.eu.
+# Checked 2026-11-16. See docs/providers/ecb.md.
+#
+# Quotes are supported for the EXR (exchange rates), EST (€STR) and FM
+# (key interest rates) dataflows; other dataflows are economic indicators.
+# Collection needs a handful of requests a day.
+
+[[providers]]
+name = "ecb"
+base_url = "https://data-api.ecb.europa.eu/service"
+
+[providers.configuration]
+# The ECB publishes no rate limit; this is a courtesy limit, far above what
+# collection needs.
+rate_limits = [{ limit = 30, period = "minute" }]
+timeout_seconds = 30
+
+# Daily reference rates, in units of the quote currency per euro. EUR/USD and
+# EUR/GBP are listed with Twelve Data above.
+
+[[instruments]]
+symbol = "EUR/JPY"
+name = "Euro / Japanese Yen"
+asset_type = "forex"
+currency = "JPY"
+providers = { ecb = "EXR/D.JPY.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/CHF"
+name = "Euro / Swiss Franc"
+asset_type = "forex"
+currency = "CHF"
+providers = { ecb = "EXR/D.CHF.EUR.SP00.A" }
+
+# Interest rates, in percent per annum.
+
+[[instruments]]
+symbol = "ESTR"
+name = "Euro short-term rate (€STR)"
+asset_type = "interest_rate"
+metadata = { area = "euro area" }
+providers = { ecb = "EST/B.EU000A2X2A25.WT" }
+
+[[instruments]]
+symbol = "ECB-DFR"
+name = "ECB deposit facility rate"
+asset_type = "interest_rate"
+metadata = { area = "euro area" }
+providers = { ecb = "FM/B.U2.EUR.4F.KR.DFR.LEV" }
+
+[[instruments]]
+symbol = "ECB-MRO"
+name = "ECB main refinancing operations rate"
+asset_type = "interest_rate"
+metadata = { area = "euro area" }
+providers = { ecb = "FM/B.U2.EUR.4F.KR.MRR_FR.LEV" }
+
+# Euro-area economic indicators. Each period is dated by its first day.
+
+[[indicators]]
+code = "EA_HICP_YOY"
+name = "Euro area HICP inflation, annual rate of change"
+unit = "percent"
+frequency = "monthly"
+provider = "ecb"
+provider_series_code = "ICP/M.U2.N.000000.4.ANR"
+metadata = { area = "euro area" }
+
+[[indicators]]
+code = "EA_UNEMPLOYMENT"
+name = "Euro area unemployment rate, seasonally adjusted"
+unit = "percent"
+frequency = "monthly"
+provider = "ecb"
+provider_series_code = "LFSI/M.I9.S.UNEHRT.TOTAL0.15_74.T"
+metadata = { area = "euro area" }
+
+[[indicators]]
+code = "EA_GDP_GROWTH_YOY"
+name = "Euro area real GDP, growth over the same quarter of the previous year"
+unit = "percent"
+frequency = "quarterly"
+provider = "ecb"
+provider_series_code = "MNA/Q.Y.I9.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.GY"
+metadata = { area = "euro area" }
+
+[[indicators]]
+code = "EA_GOV_DEBT_GDP"
+name = "Euro area general government debt"
+unit = "percent_of_gdp"
+frequency = "annual"
+provider = "ecb"
+provider_series_code = "GFS/A.N.I9.W0.S13.S1.C.L.LE.GD.T._Z.XDC_R_B1GQ._T.F.V.N._T"
+metadata = { area = "euro area" }

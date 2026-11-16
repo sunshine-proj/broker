@@ -101,7 +101,7 @@ Collect:
 
 Support major, minor, and selected exotic currency pairs.
 
-Two kinds of rate are collected and must stay distinguishable:
+Two kinds of rate are collected and must stay distinguishable. Where both exist for a pair (EUR/USD, EUR/GBP), both are stored on the same instrument under their own provider:
 
 - Intraday market rates (Twelve Data).
 - Daily reference rates (ECB), published once per business day. These are indicative, not executable.
@@ -123,6 +123,8 @@ Collect:
 - Historical rate observations
 
 EURIBOR is licensed by its administrator and is not published by the ECB. It is out of scope unless a licensed provider is added.
+
+€STR and the ECB's key interest rates come from the ECB. The key rates are recorded on the dates they change; a rate holds until its next recorded change, and no daily values are filled in.
 
 ### 3.7 Commodities
 

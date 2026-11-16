@@ -83,12 +83,19 @@ class ProviderHttpClient:
         self._wall_clock = wall_clock
 
     async def get_json(
-        self, path: str, params: Mapping[str, Any] | None = None, *, cost: int = 1
+        self,
+        path: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        cost: int = 1,
+        allow_empty: bool = False,
     ) -> Any:
         """GET `path` and return the decoded JSON body.
 
         JSON numbers with a fraction are decoded as Decimal, never float.
-        `cost` is the number of rate-limit credits the request uses.
+        `cost` is the number of rate-limit credits the request uses. With
+        `allow_empty`, a successful response with an empty body returns None,
+        for providers that answer "no data" that way.
         """
         url = f"{self._base_url}/{path.lstrip('/')}"
         query, headers = self._authenticate(dict(params or {}))
@@ -111,6 +118,8 @@ class ProviderHttpClient:
             else:
                 failure = self._classify(response)
                 if failure is None:
+                    if allow_empty and not response.text.strip():
+                        return None
                     return self._decode(response)
                 error = failure
 

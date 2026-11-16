@@ -36,7 +36,7 @@ class ExampleProvider(Provider):
         return [Quote(...) for item in parsed.data]
 ```
 
-A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`. The real adapters, [Twelve Data](twelve_data.md) and [CoinGecko](coingecko.md), are fuller examples.
+A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`. The real adapters, [Twelve Data](twelve_data.md), [CoinGecko](coingecko.md) and the [ECB](ecb.md), are fuller examples.
 
 Add the module to the imports in `backend/app/providers/__init__.py`, which is what registers it.
 

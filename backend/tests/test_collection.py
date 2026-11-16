@@ -13,7 +13,7 @@ from app import cli
 from app.config.settings import Settings
 from app.models.enums import CandleInterval, Freshness, ObservationType, QuoteKind
 from app.providers.errors import ProviderConfigurationError, ProviderUnavailableError
-from app.schemas.normalized import Candle, Quote
+from app.schemas.normalized import Candle, IndicatorValue, Quote
 from app.services.collection import CollectionOutcome, CollectionService
 from app.services.ingestion import IngestionResult
 from app.services.provider_health import ProviderHealthService
@@ -72,6 +72,11 @@ class StubProvider:
             raise ProviderUnavailableError("example", "request timed out")
         return [quote(symbol)]
 
+    async def fetch_indicator(self, series_code: str, *args: Any) -> list[IndicatorValue]:
+        if series_code.startswith("BROKEN"):
+            raise ProviderUnavailableError("example", "request timed out")
+        return [IndicatorValue(series_code=series_code, observed_at=NOW, value=Decimal("2.1"))]
+
     async def fetch_candles(self, symbol: str, *args: Any) -> list[Candle]:
         self.candle_requests.append(symbol)
         if symbol in self.failing:
@@ -98,16 +103,32 @@ class StubInstruments:
         return [SimpleNamespace(provider_symbol=symbol) for symbol in self.symbols]
 
 
+class StubEconomicData:
+    async def list_indicators(self, **filters: Any) -> list[Any]:
+        assert filters["enabled"] is True
+        return [
+            SimpleNamespace(provider_series_code=code)
+            for code in ("ICP/M.U2.N.000000.4.ANR", "BROKEN/X", "MNA/Q.Y.I9")
+        ]
+
+
 class StubIngestion:
     def __init__(self) -> None:
         self.quotes: list[Quote] = []
         self.candles: list[Candle] = []
+        self.indicator_values: list[IndicatorValue] = []
 
     async def ingest_quotes(
         self, provider_id: uuid.UUID, quotes: Sequence[Quote]
     ) -> IngestionResult:
         self.quotes += quotes
         return IngestionResult(received=len(quotes), written=len(quotes))
+
+    async def ingest_indicator_values(
+        self, provider_id: uuid.UUID, values: Sequence[IndicatorValue]
+    ) -> IngestionResult:
+        self.indicator_values += values
+        return IngestionResult(received=len(values), written=len(values))
 
     async def ingest_candles(
         self, provider_id: uuid.UUID, candles: Sequence[Candle]
@@ -135,6 +156,7 @@ def build(
     service = CollectionService(
         factory=StubFactory(provider, build_error),  # type: ignore[arg-type]
         instruments=StubInstruments(symbols),  # type: ignore[arg-type]
+        economic_data=StubEconomicData(),  # type: ignore[arg-type]
         ingestion=ingestion,  # type: ignore[arg-type]
         health=ProviderHealthService(health),  # type: ignore[arg-type]
     )
@@ -215,6 +237,18 @@ async def test_quote_history_continues_past_a_failing_symbol() -> None:
     assert (outcome.requested, outcome.succeeded, outcome.result.written) == (3, False, 2)
 
 
+async def test_indicators_of_the_provider_are_collected_past_a_failing_series() -> None:
+    world = build([])
+
+    outcome = await world.service.collect_indicators(PROVIDER, NOW, NOW)
+
+    assert [v.series_code for v in world.ingestion.indicator_values] == [
+        "ICP/M.U2.N.000000.4.ANR",
+        "MNA/Q.Y.I9",
+    ]
+    assert (outcome.requested, outcome.succeeded, outcome.result.written) == (3, False, 2)
+
+
 # --- Command line --------------------------------------------------------------------
 
 
@@ -256,6 +290,7 @@ def test_collect_quotes_uses_default_candle_arguments(
     assert cli.main(["collect", "quotes", "example"]) == 0
     assert cli.main(["collect", "quotes", "example", "--types", "price, dominance"]) == 0
     assert cli.main(["collect", "history", "example", "--days", "90"]) == 0
+    assert cli.main(["collect", "indicators", "example"]) == 0
     assert calls == [
         cli.CollectRequest("quotes", "example"),
         cli.CollectRequest(
@@ -264,6 +299,7 @@ def test_collect_quotes_uses_default_candle_arguments(
             types=frozenset({ObservationType.PRICE, ObservationType.DOMINANCE}),
         ),
         cli.CollectRequest("history", "example", days=90),
+        cli.CollectRequest("indicators", "example", days=730),
     ]
 
 

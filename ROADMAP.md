@@ -170,12 +170,12 @@ Phase 4 is delivered as four sub-phases, one provider each. Complete, test, and 
 
 ### Phase 4C — ECB
 
-- [ ] Implement ECB SDMX integration.
-- [ ] Implement daily reference rate collection, stored as reference quotes.
-- [ ] Implement historical exchange rate collection.
-- [ ] Implement €STR collection.
-- [ ] Implement European economic data collection.
-- [ ] Add provider tests.
+- [x] Implement ECB SDMX integration.
+- [x] Implement daily reference rate collection, stored as reference quotes.
+- [x] Implement historical exchange rate collection.
+- [x] Implement €STR collection.
+- [x] Implement European economic data collection.
+- [x] Add provider tests.
 
 ### Phase 4D — FRED
 
@@ -276,7 +276,7 @@ Phase 4 is delivered as four sub-phases, one provider each. Complete, test, and 
 - [ ] Add dashboard variables.
 - [ ] Add time-range controls.
 - [ ] Add data freshness indicators.
-- [ ] Show the attribution each provider's licence requires (CoinGecko: "Powered by CoinGecko").
+- [ ] Show the attribution each provider's licence requires (CoinGecko: "Powered by CoinGecko"; ECB: cite the ECB as the source).
 - [ ] Version-control dashboard definitions.
 - [ ] Test dashboard queries.
 

@@ -1,6 +1,6 @@
 # Backend Architecture
 
-This document describes the backend as it is built today (through Phase 4B). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
+This document describes the backend as it is built today (through Phase 4C). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
 
 ## Request Flow
 
@@ -40,7 +40,7 @@ uvicorn  ->  FastAPI app (app/main.py: create_app)
 | `app/services/ingestion.py`, `validation.py` | Validates normalized provider data and stores it. |
 | `app/services/provider_health.py` | Records provider health and contains provider failures. |
 | `app/services/collection.py` | One collection run for one provider: fetch, validate, store. |
-| `app/providers/twelve_data.py`, `coingecko.py` | Provider adapters. |
+| `app/providers/twelve_data.py`, `coingecko.py`, `ecb.py` | Provider adapters. |
 | `app/cli.py` | Administrative commands: `seed`, `search`, `collect`. |
 | `migrations/` | Alembic environment and revisions. |
 
@@ -137,7 +137,7 @@ Time-series reads take `start` and `end`, return rows with `start <= time < end`
 
 ## Provider Framework
 
-This is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md). Integrated so far: [Twelve Data](providers/twelve_data.md) and [CoinGecko](providers/coingecko.md).
+This is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md). Integrated so far: [Twelve Data](providers/twelve_data.md), [CoinGecko](providers/coingecko.md) and the [ECB](providers/ecb.md).
 
 ```text
 ProviderFactory.build(provider row)
@@ -213,6 +213,7 @@ Because a provider error never leaves `guard`, one provider's failure cannot sto
 
 - `collect_quotes` fetches every symbol in one call; the adapter splits it into batches. It can be limited to some observation types, which lets a cheap, frequent poll skip data that is fetched less often (CoinGecko dominance).
 - `collect_candles` and `collect_quote_history` fetch symbol by symbol, so one failing symbol does not stop the rest.
+- `collect_indicators` fetches each enabled economic indicator of the provider, series by series.
 - A missing credential or other configuration problem is recorded as a provider failure, like any other.
 
 Scheduling and execution history arrive in Phase 5. Until then collection runs from the command line:
@@ -222,6 +223,7 @@ python -m app.cli collect quotes twelve_data
 python -m app.cli collect quotes coingecko --types price,market_cap
 python -m app.cli collect candles twelve_data --interval 1day --days 30
 python -m app.cli collect history coingecko --days 30
+python -m app.cli collect indicators ecb --days 730
 python -m app.cli search coingecko "cardano"
 ```
 

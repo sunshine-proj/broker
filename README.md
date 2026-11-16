@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 3 and Phases 4A and 4B are complete. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Twelve Data (stocks, ETFs, forex) and CoinGecko (crypto) are integrated, and data can be collected from the command line. Scheduled collection, the data endpoints and dashboards are not implemented yet. See [ROADMAP.md](ROADMAP.md) for progress; the sections below marked *planned* describe the target.
+**Status:** Phases 0 to 3 and Phases 4A to 4C are complete. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Twelve Data (stocks, ETFs, forex), CoinGecko (crypto) and the ECB (reference exchange rates, €STR, key rates, euro-area statistics) are integrated, and data can be collected from the command line. Scheduled collection, the data endpoints and dashboards are not implemented yet. See [ROADMAP.md](ROADMAP.md) for progress; the sections below marked *planned* describe the target.
 
 Collect financial data from multiple providers, normalize it, store historical observations, and visualize everything through Grafana.
 
@@ -275,7 +275,13 @@ What the platform tracks is defined in [backend/seed.toml](backend/seed.toml): e
 
 After editing the file, rebuild and restart: `docker compose up -d --build`.
 
-The file currently tracks 7 US stocks, 3 ETFs and 5 forex pairs through Twelve Data, and 10 cryptocurrencies through CoinGecko, each sized to the provider's free plan. Other providers are added in later sub-phases of Phase 4. To find the symbol a provider uses:
+The file currently tracks:
+
+- 7 US stocks, 3 ETFs and 5 forex pairs through Twelve Data;
+- 10 cryptocurrencies through CoinGecko;
+- 4 euro reference exchange rates, €STR, two ECB key rates and 4 euro-area economic indicators through the ECB.
+
+Each is sized to the provider's free plan. Other providers are added in later sub-phases of Phase 4. To find the symbol a provider uses:
 
 ```bash
 docker compose run --rm migrate python -m app.cli search twelve_data "apple"
@@ -290,6 +296,9 @@ docker compose run --rm migrate python -m app.cli collect quotes twelve_data
 docker compose run --rm migrate python -m app.cli collect candles twelve_data --interval 1day --days 30
 docker compose run --rm migrate python -m app.cli collect quotes coingecko
 docker compose run --rm migrate python -m app.cli collect history coingecko --days 90
+docker compose run --rm migrate python -m app.cli collect quotes ecb
+docker compose run --rm migrate python -m app.cli collect history ecb --days 365
+docker compose run --rm migrate python -m app.cli collect indicators ecb
 ```
 
 Each run uses provider credits:
@@ -297,7 +306,9 @@ Each run uses provider credits:
 - **Twelve Data:** 15 for quotes or candles of the default instruments. The free plan allows 8 a minute, so a run takes about two minutes.
 - **CoinGecko:** 2 for current values and dominance, and 10 for history, one per coin. History is limited to the past 365 days and stops 2 days short of today, because CoinGecko may still revise recent values.
 
-CoinGecko's free plans require attribution ("Powered by CoinGecko") wherever its data is displayed. Provider limits and licensing are documented in [docs/providers/](docs/providers/).
+- **ECB:** no key and no published limit. A collection takes a few requests.
+
+CoinGecko's free plans require attribution ("Powered by CoinGecko") wherever its data is displayed, and ECB data must cite the ECB as its source. Provider limits and licensing are documented in [docs/providers/](docs/providers/).
 
 ## Development Roadmap
 

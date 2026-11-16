@@ -14,7 +14,7 @@ from app.models import Provider as ProviderRow
 from app.models.enums import CandleInterval, ObservationType
 from app.providers.base import Provider
 from app.providers.factory import ProviderFactory
-from app.repositories.interfaces import InstrumentRepository
+from app.repositories.interfaces import EconomicDataRepository, InstrumentRepository
 from app.schemas.normalized import Quote
 from app.services.ingestion import IngestionResult, IngestionService
 from app.services.provider_health import ProviderHealthService
@@ -48,11 +48,13 @@ class CollectionService:
         *,
         factory: ProviderFactory,
         instruments: InstrumentRepository,
+        economic_data: EconomicDataRepository,
         ingestion: IngestionService,
         health: ProviderHealthService,
     ) -> None:
         self._factory = factory
         self._instruments = instruments
+        self._economic_data = economic_data
         self._ingestion = ingestion
         self._health = health
 
@@ -124,13 +126,41 @@ class CollectionService:
         )
         return outcome
 
+    async def collect_indicators(
+        self, provider: ProviderRow, start: datetime, end: datetime
+    ) -> CollectionOutcome:
+        """Fetch and store values of every enabled economic indicator from the provider.
+
+        A series whose request fails is skipped; the remaining series are still collected.
+        """
+        indicators = await self._economic_data.list_indicators(
+            provider_id=provider.id, enabled=True, limit=None
+        )
+
+        async def collect(adapter: Provider, series_code: str) -> IngestionResult:
+            values = await adapter.fetch_indicator(series_code, start, end)
+            return await self._ingestion.ingest_indicator_values(provider.id, values)
+
+        outcome = await self._per_symbol(
+            provider, collect, [indicator.provider_series_code for indicator in indicators]
+        )
+        logger.info(
+            "Indicators collected", extra={"provider": provider.name, **outcome.result.__dict__}
+        )
+        return outcome
+
     async def _per_symbol(
         self,
         provider: ProviderRow,
         collect: Callable[[Provider, str], Awaitable[IngestionResult]],
+        symbols: list[str] | None = None,
     ) -> CollectionOutcome:
-        """Run `collect` for each mapped symbol, containing each symbol's provider failure."""
-        symbols = await self._symbols(provider)
+        """Run `collect` for each symbol, containing each symbol's provider failure.
+
+        `symbols` defaults to the provider's enabled instrument mappings.
+        """
+        if symbols is None:
+            symbols = await self._symbols(provider)
         results: list[IngestionResult] = []
         succeeded = True
 
