@@ -264,9 +264,13 @@ Initial endpoints:
 - `GET /forex/rates`
 - `GET /bonds/yields`
 - `GET /indicators`
+- `GET /indicators/{code}/observations`
 - `GET /providers`
 - `GET /collectors/status`
+- `GET /collectors/executions`
 - `POST /collectors/{job}/run`
+
+`/indicators/{code}/observations` returns an indicator's history, current values or every revision. `/collectors/executions` returns the run history, newest first.
 
 `GET` endpoints are unauthenticated and rely on the service being bound to a trusted interface (loopback by default).
 
@@ -276,7 +280,7 @@ Initial endpoints:
 
 - **Errors:** every error response has the shape `{"error": {"code": "<machine_readable_code>", "message": "<human readable>", "details": <optional object>}}`.
 - **Pagination:** list endpoints accept `limit` (default 100, maximum 1000) and `offset`, and return `{"items": [...], "limit": n, "offset": n, "has_more": bool}`.
-- **Time ranges:** time-series endpoints accept `start` and `end` as ISO 8601 timestamps and return items in ascending time order.
+- **Time ranges:** time-series endpoints accept `start` (inclusive) and `end` (exclusive) as ISO 8601 timestamps and return items in ascending time order. Missing bounds default to now and to a per-endpoint window. The execution history is a log, not a time series, and is returned newest first.
 - **Decimals:** financial values are serialized as JSON strings to preserve precision.
 - **Timestamps:** ISO 8601 in UTC with a `Z` suffix.
 

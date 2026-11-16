@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 5 are complete. Collection runs automatically on schedules defined in the seed file. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Four providers are integrated, and data can be collected from the command line:
+**Status:** Phases 0 to 6 are complete. Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Four providers are integrated, and data can be collected from the command line:
 
 - **Twelve Data:** stocks, ETFs, forex.
 - **CoinGecko:** crypto.
@@ -196,30 +196,45 @@ docs/
     providers/      # integration requirements, and one document per provider (from Phase 4)
 ```
 
-## API (planned)
+## API
 
-Base path: `/api/v1`.
-
-Initial API endpoints:
+Base path: `/api/v1`. Interactive documentation: <http://localhost:8000/docs> (Swagger UI), schema at `/openapi.json`.
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | GET | `/health` | Health status |
-| GET | `/instruments` | List instruments |
+| GET | `/instruments` | Instruments, with each provider's symbol. Filters: `asset_type`, `provider`, `search`, `enabled` |
 | GET | `/instruments/{id}` | Instrument details |
-| GET | `/prices/latest` | Latest prices |
-| GET | `/prices/history` | Historical prices |
-| GET | `/ohlcv` | OHLCV observations |
-| GET | `/forex/rates` | Currency exchange rates |
-| GET | `/bonds/yields` | Bond yields |
-| GET | `/indicators` | Economic indicators |
-| GET | `/providers` | Configured providers |
-| GET | `/collectors/status` | Collector status |
-| POST | `/collectors/{job}/run` | Trigger a collection manually (requires the administrator key) |
+| GET | `/prices/latest` | Latest value of each instrument from each provider. Filters: `asset_type`, `symbol`, `instrument_id`, `provider`, `observation_type` |
+| GET | `/prices/history` | Values of one instrument over time (`instrument_id`; `observation_type`, `provider`, `start`, `end`) |
+| GET | `/ohlcv` | Candles of one instrument (`instrument_id`; `interval`, `provider`, `start`, `end`) |
+| GET | `/forex/rates` | Latest currency rates. Filters: `base`, `quote`, `provider`, `quote_kind` |
+| GET | `/bonds/yields` | Latest government bond yields. Filters: `country`, `provider` |
+| GET | `/indicators` | Economic indicators with their latest value. Filters: `country`, `provider`, `frequency`, `enabled` |
+| GET | `/indicators/{code}/observations` | Values of one indicator (`start`, `end`, `include_revisions`) |
+| GET | `/providers` | Providers, their rate limits and health |
+| GET | `/collectors/status` | Collection jobs: schedule, last run, outcome, next run |
+| GET | `/collectors/executions` | Run history, newest first. Filters: `job`, `status` |
+| POST | `/collectors/{job}/run` | Run a job now (requires `X-API-Key`; see [Collecting Data](#collecting-data)) |
 
-Read endpoints are unauthenticated and rely on the service being bound to loopback. Response conventions (errors, pagination, decimals as strings, UTC timestamps) are defined in [PRD.md](PRD.md), FR-006.
+Conventions:
 
-Interactive API documentation is served by Swagger UI at <http://localhost:8000/docs>.
+- **Pages:** lists return `{"items": [...], "limit": 100, "offset": 0, "has_more": false}`. `limit` is at most 1000. Fetch the next page with `offset` = `offset` + `limit`.
+- **Values:** sent as strings (`"1.1052"`), so no precision is lost.
+- **Timestamps:** ISO 8601 in UTC with a `Z`. `start` is inclusive and `end` exclusive; a timestamp without an offset is read as UTC.
+- **Time series:** returned oldest first. Default ranges are 30 days for price history, 90 days for candles and 10 years for indicators.
+- **Several providers:** values from different providers are never merged. Each comes back as its own item, with its `provider`, `freshness` (`real_time`, `delayed`, `end_of_day`) and `quote_kind` (`traded`, `indicative`, `reference`).
+- **Errors:** `{"error": {"code": "...", "message": "...", "details": {...}}}`. For example, `instrument_not_found` (404), `unknown_provider` (422), `invalid_time_range` (422), `validation_error` (422).
+
+Read endpoints need no authentication; they rely on the backend being bound to `127.0.0.1` (see `BIND_ADDRESS`).
+
+Examples:
+
+```bash
+curl "http://localhost:8000/api/v1/prices/latest?asset_type=crypto"
+curl "http://localhost:8000/api/v1/forex/rates?base=EUR&quote=USD"
+curl "http://localhost:8000/api/v1/indicators/US_CPI/observations?include_revisions=true"
+```
 
 ## Grafana (planned)
 

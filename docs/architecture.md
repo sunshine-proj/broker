@@ -1,6 +1,6 @@
 # Backend Architecture
 
-This document describes the backend as it is built today (through Phase 5). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
+This document describes the backend as it is built today (through Phase 6). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
 
 ## Request Flow
 
@@ -42,7 +42,11 @@ uvicorn  ->  FastAPI app (app/main.py: create_app)
 | `app/services/collection.py` | One collection run for one provider: fetch, validate, store. |
 | `app/services/budget.py` | The startup rate budget check. |
 | `app/collectors/` | Job runner and scheduler. |
-| `app/api/v1/collectors.py` | Manual job trigger. |
+| `app/api/v1/market.py`, `collectors.py` | Read endpoints; providers, collector status and the manual job trigger. |
+| `app/api/v1/params.py` | Shared paging, time-range and dependency definitions. |
+| `app/services/read_api.py` | Defaults, validation and response shaping for the read endpoints. |
+| `app/repositories/read_queries.py` | The queries behind the read endpoints. |
+| `app/schemas/api.py` | Response models. |
 | `app/providers/twelve_data.py`, `coingecko.py`, `ecb.py`, `fred.py` | Provider adapters. |
 | `app/cli.py` | Administrative commands: `seed`, `search`, `collect`, `jobs`, `run`. |
 | `migrations/` | Alembic environment and revisions. |
@@ -323,6 +327,24 @@ A manual run collects every instrument of the job, also outside trading hours, a
 - Each entry is created or updated on its natural key, so applying the file twice changes nothing.
 - Entries absent from the file are left alone, except jobs, which are disabled.
 - The rate budget is checked first; an over-budget file is refused.
+
+## Read API
+
+The endpoints are listed in the [README](../README.md#api). Every request passes through three layers:
+
+```text
+router (app/api/v1)          parses and validates query parameters
+  -> read_api (services)     defaults, existence checks, response shaping
+    -> SqlReadRepository     one SQL query per request part
+```
+
+- **Paging:** list queries fetch `limit + 1` rows. The extra row only sets `has_more`, so no count query is needed.
+- **Serialization:** response models serialize `Decimal` with `str()`, so every stored digit is sent. Timestamps are serialized in UTC with a `Z`.
+- **Latest values:** `/prices/latest`, `/forex/rates` and `/bonds/yields` combine each instrument-provider mapping with the requested observation types. For each combination, a `LATERAL` subquery takes the newest row through the hypertable's primary key, read backwards. The cost grows with the number of series, not with the history; on the live data the query takes about 4 ms.
+- **Indicators:** `/indicators` takes each indicator's most recent period the same way, choosing the latest revision. `/indicators/{code}/observations` uses `DISTINCT ON` for current values, or returns every revision with `include_revisions`.
+- **Main value:** `/prices/history` defaults to each instrument's main observation type: `price` for stocks, ETFs, crypto and commodities, `rate` for forex and interest rates, `yield` for government bond yields, and `index_level` for indices.
+- **Unknown names:** a provider name in a filter that does not exist is an error (`unknown_provider`), not an empty result, so a typo is noticed.
+- **Providers:** `/providers` shows only the rate limits from a provider's configuration. Authentication settings, including the name of the key variable, are never returned.
 
 ## Error Handling
 

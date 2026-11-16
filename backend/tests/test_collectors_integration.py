@@ -24,7 +24,7 @@ from app.collectors.runner import (
 )
 from app.collectors.scheduler import CollectorScheduler
 from app.config.settings import Settings
-from app.database import create_engine, create_session_factory
+from app.database import create_session_factory
 from app.models import CollectionJob, CollectorExecution, MarketObservation, ProviderHealth
 from app.models.enums import CollectorStatus, ExecutionTrigger, ProviderHealthStatus
 from app.providers.factory import ADAPTERS, ProviderFactory
@@ -45,19 +45,6 @@ CLOSED = datetime(2026, 11, 14, 15, 0, tzinfo=UTC)
 # 1794816000 is 2026-11-16T08:00:00Z.
 QUOTE_TIME = 1794816000
 
-TABLES = (
-    "collector_execution",
-    "collection_job",
-    "provider_health",
-    "market_observation",
-    "ohlcv",
-    "economic_observation",
-    "economic_indicator",
-    "instrument_provider_mapping",
-    "instrument",
-    "exchange",
-    "provider",
-)
 
 SEED = {
     "exchanges": [
@@ -164,11 +151,6 @@ class World:
             return job
 
 
-async def _truncate(engine: AsyncEngine) -> None:
-    async with engine.begin() as connection:
-        await connection.execute(sa.text(f"TRUNCATE {', '.join(TABLES)} CASCADE"))
-
-
 async def _apply(sessions: async_sessionmaker[AsyncSession], data: dict) -> None:
     async with sessions() as session:
         await apply_seed(
@@ -183,13 +165,12 @@ async def _apply(sessions: async_sessionmaker[AsyncSession], data: dict) -> None
 
 @pytest.fixture
 async def world(
-    migrated_database: Settings, monkeypatch: pytest.MonkeyPatch
+    migrated_database: Settings, empty_database: AsyncEngine, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[World]:
     # The example adapter stands in for a real provider, for the budget check too.
     monkeypatch.setitem(ADAPTERS, "example", ExampleProvider)
-    engine = create_engine(migrated_database)
+    engine = empty_database
     sessions = create_session_factory(engine)
-    await _truncate(engine)
     api = FakeApi()
     providers = ProviderFactory(
         migrated_database, http=httpx.AsyncClient(transport=httpx.MockTransport(api))
@@ -199,8 +180,6 @@ async def world(
         yield World(engine, sessions, api, providers, [OPEN])
     finally:
         await providers.aclose()
-        await _truncate(engine)
-        await engine.dispose()
 
 
 # --- Running jobs ---------------------------------------------------------------------------

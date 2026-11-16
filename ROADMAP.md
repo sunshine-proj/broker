@@ -233,21 +233,21 @@ Verified with tests against FRED's documented response format. Not yet run again
 
 ### Tasks
 
-- [ ] Implement instrument listing endpoint.
-- [ ] Implement instrument details endpoint.
-- [ ] Implement latest prices endpoint.
-- [ ] Implement historical prices endpoint.
-- [ ] Implement OHLCV endpoint.
-- [ ] Implement forex rates endpoint.
-- [ ] Implement bond yields endpoint.
-- [ ] Implement economic indicators endpoint.
-- [ ] Implement provider listing endpoint.
-- [ ] Implement collector status endpoint.
-- [ ] Add pagination.
-- [ ] Add filtering.
-- [ ] Add request validation.
-- [ ] Add API integration tests.
-- [ ] Document API endpoints.
+- [x] Implement instrument listing endpoint.
+- [x] Implement instrument details endpoint.
+- [x] Implement latest prices endpoint.
+- [x] Implement historical prices endpoint.
+- [x] Implement OHLCV endpoint.
+- [x] Implement forex rates endpoint.
+- [x] Implement bond yields endpoint.
+- [x] Implement economic indicators endpoint.
+- [x] Implement provider listing endpoint.
+- [x] Implement collector status endpoint.
+- [x] Add pagination.
+- [x] Add filtering.
+- [x] Add request validation.
+- [x] Add API integration tests.
+- [x] Document API endpoints.
 
 ### Acceptance Criteria
 

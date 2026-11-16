@@ -5,12 +5,13 @@ from pathlib import Path
 
 import asyncpg
 import pytest
+import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.config.settings import Settings
 from app.database import create_engine, get_session
@@ -140,3 +141,36 @@ async def session(migrated_database: Settings) -> AsyncIterator[AsyncSession]:
             yield test_session
         await transaction.rollback()
     await engine.dispose()
+
+
+# Every table holding data; truncated by `empty_database`.
+DATA_TABLES = (
+    "collector_execution",
+    "collection_job",
+    "provider_health",
+    "market_observation",
+    "ohlcv",
+    "economic_observation",
+    "economic_indicator",
+    "instrument_provider_mapping",
+    "instrument",
+    "exchange",
+    "provider",
+)
+
+
+async def truncate_data(engine: AsyncEngine) -> None:
+    async with engine.begin() as connection:
+        await connection.execute(sa.text(f"TRUNCATE {', '.join(DATA_TABLES)} CASCADE"))
+
+
+@pytest.fixture
+async def empty_database(migrated_database: Settings) -> AsyncIterator[AsyncEngine]:
+    """For tests that must commit: the test database emptied before and after."""
+    engine = create_engine(migrated_database)
+    await truncate_data(engine)
+    try:
+        yield engine
+    finally:
+        await truncate_data(engine)
+        await engine.dispose()

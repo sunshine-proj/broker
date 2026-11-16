@@ -276,9 +276,45 @@ Next is Phase 6, the REST API for reading the collected data.
 
 
 
+Phase 6 (REST API) is done and checked against the live stack: all 15 roadmap tasks are ticked, 416 tests pass and Ruff is clean. The collected data is now available at /api/v1, with interactive docs at http://localhost:8000/docs.
+
+Verified on the live stack
+Speed: every endpoint answered in under 40 ms on the real data (about 7,400 stored values).
+Providers kept apart: EUR/USD comes back as two separate items, the ECB's end-of-day reference rate and Twelve Data's real-time market rate, each labelled with its provider and kind. The same holds for every instrument covered by more than one provider.
+Query plan: I checked the "latest value" lookup on the real database. It reads each series' newest row from the index and took about 4 ms. Its cost grows with the number of series, not with the length of history, so it should stay fast as data piles up.
+The endpoints
+The ten from the PRD:
+
+/instruments and /instruments/{id}
+/prices/latest and /prices/history
+/ohlcv
+/forex/rates
+/bonds/yields
+/indicators
+/providers
+/collectors/status
+Two additions:
+
+/indicators/{code}/observations returns an indicator's history, either current values only or every revision. Without it there was no way to read indicator history through the API.
+/collectors/executions returns the run history, newest first.
+Both are added to the PRD.
+
+Conventions, as the PRD specifies: lists come in pages (items, limit, offset, has_more; at most 1000 per page). Values are strings so no digits are lost, timestamps are UTC with a Z, history is oldest first, and every error uses the standard error format.
+
+Decisions I made
+A misspelt provider name is an error (unknown_provider), not an empty list, so a typo gets noticed.
+History defaults to each instrument's main value: price for stocks and crypto, rate for forex and interest rates, yield for bonds. Any other type can be asked for explicitly.
+Default time windows: 30 days for price history, 90 days for candles, 10 years for indicators.
+/providers shows only rate limits and health, never authentication settings, not even the name of the key variable.
+Read endpoints have no authentication. They rely on the backend only being reachable from this machine, as the PRD specifies. Phase 11 revisits this before any wider exposure.
+Limitations
+US inflation, unemployment and Treasury yields are absent until FRED is enabled. They show up empty in /indicators and /bonds/yields.
+Euro-area inflation stops at December 2025, as found in Phase 4C.
 
 
 
+
+===========================================
 
 
 
