@@ -1,0 +1,68 @@
+"""Application settings, read from environment variables."""
+
+import os
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal
+
+from dotenv import dotenv_values
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
+
+# Repository-root .env, used when running outside Docker. Real environment
+# variables always take precedence over it.
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_ENV_FILE = _BACKEND_DIR.parent / ".env"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+    app_name: str = "Financial Market Data Platform"
+    app_version: str = "0.1.0"
+
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: Literal["json", "text"] = "json"
+
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_db: str
+    postgres_user: str
+    postgres_password: SecretStr
+    # Database used by integration tests; never the application's own database.
+    postgres_test_db: str = "marketdata_test"
+    database_connect_timeout_seconds: float = 5.0
+
+    # Instruments, provider mappings and indicators to track (PRD FR-004).
+    seed_file: Path = _BACKEND_DIR / "seed.toml"
+
+    def database_url(self, database: str | None = None) -> URL:
+        """SQLAlchemy URL for the application database, or for `database` if given."""
+        return URL.create(
+            "postgresql+asyncpg",
+            username=self.postgres_user,
+            password=self.postgres_password.get_secret_value(),
+            host=self.postgres_host,
+            port=self.postgres_port,
+            database=database or self.postgres_db,
+        )
+
+    def credential(self, env_name: str) -> SecretStr | None:
+        """A provider credential, looked up by the name of its environment variable.
+
+        Provider configuration stores only that name (PRD FR-005). Outside
+        Docker the repository-root .env is consulted as well.
+        """
+        value = os.environ.get(env_name) or _dotenv_values().get(env_name)
+        return SecretStr(value) if value else None
+
+
+@lru_cache
+def _dotenv_values() -> dict[str, str | None]:
+    return dict(dotenv_values(_ENV_FILE)) if _ENV_FILE.is_file() else {}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

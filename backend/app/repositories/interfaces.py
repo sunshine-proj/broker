@@ -1,0 +1,203 @@
+"""Repository interfaces.
+
+Services depend on these protocols, not on the SQLAlchemy implementations, so
+they can be tested with in-memory fakes. Repositories never commit: the caller
+owns the transaction.
+"""
+
+import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Protocol
+
+from app.models import (
+    OHLCV,
+    EconomicIndicator,
+    EconomicObservation,
+    Exchange,
+    Instrument,
+    InstrumentProviderMapping,
+    MarketObservation,
+    Provider,
+    ProviderHealth,
+)
+from app.models.enums import AssetType, CandleInterval, IndicatorFrequency, ObservationType
+from app.schemas.market_data import EconomicObservationIn, MarketObservationIn, OHLCVIn
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    """Outcome of writing immutable time-series rows."""
+
+    inserted: int = 0
+    # Already stored with the same values.
+    unchanged: int = 0
+    # Already stored with different values; the stored row was kept.
+    conflicting: int = 0
+
+
+@dataclass(frozen=True)
+class RevisionWriteResult:
+    """Outcome of writing revisable economic observations."""
+
+    # First value for a period.
+    inserted: int = 0
+    # New value for a period that already had one; both are kept.
+    revised: int = 0
+    unchanged: int = 0
+
+
+class ProviderRepository(Protocol):
+    async def upsert(
+        self, *, name: str, base_url: str, enabled: bool, configuration: dict[str, Any]
+    ) -> uuid.UUID: ...
+
+    async def get_by_name(self, name: str) -> Provider | None: ...
+
+    async def list(self, *, enabled: bool | None = None) -> Sequence[Provider]: ...
+
+
+class ProviderHealthRepository(Protocol):
+    async def record_success(self, provider_id: uuid.UUID, at: datetime) -> None: ...
+
+    async def record_failure(
+        self, provider_id: uuid.UUID, at: datetime, error: str, *, down_after: int
+    ) -> None: ...
+
+    async def get(self, provider_id: uuid.UUID) -> ProviderHealth | None: ...
+
+    async def list(self) -> Sequence[ProviderHealth]: ...
+
+
+class InstrumentRepository(Protocol):
+    async def upsert_exchange(
+        self, *, code: str, name: str, country: str | None, timezone: str
+    ) -> uuid.UUID: ...
+
+    async def get_exchange_by_code(self, code: str) -> Exchange | None: ...
+
+    async def upsert(
+        self,
+        *,
+        symbol: str,
+        name: str,
+        asset_type: AssetType,
+        exchange_id: uuid.UUID | None,
+        currency: str | None,
+        enabled: bool,
+        metadata: dict[str, Any],
+    ) -> uuid.UUID: ...
+
+    async def get(self, instrument_id: uuid.UUID) -> Instrument | None: ...
+
+    async def get_by_symbol(
+        self, asset_type: AssetType, symbol: str, exchange_id: uuid.UUID | None = None
+    ) -> Instrument | None: ...
+
+    async def list(
+        self,
+        *,
+        asset_type: AssetType | None = None,
+        enabled: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[Instrument]: ...
+
+    async def upsert_mapping(
+        self,
+        *,
+        instrument_id: uuid.UUID,
+        provider_id: uuid.UUID,
+        provider_symbol: str,
+        enabled: bool = True,
+    ) -> None: ...
+
+    async def list_mappings(
+        self, provider_id: uuid.UUID, *, enabled_only: bool = True
+    ) -> Sequence[InstrumentProviderMapping]: ...
+
+    async def get_instruments_by_provider_symbol(
+        self, provider_id: uuid.UUID
+    ) -> dict[str, Instrument]: ...
+
+
+class MarketDataRepository(Protocol):
+    async def add_observations(
+        self, observations: Sequence[MarketObservationIn]
+    ) -> WriteResult: ...
+
+    async def get_observations(
+        self,
+        instrument_id: uuid.UUID,
+        observation_type: ObservationType,
+        *,
+        start: datetime,
+        end: datetime,
+        provider_id: uuid.UUID | None = None,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> Sequence[MarketObservation]: ...
+
+    async def get_latest_observations(
+        self, instrument_ids: Sequence[uuid.UUID], observation_type: ObservationType
+    ) -> Sequence[MarketObservation]: ...
+
+    async def add_candles(self, candles: Sequence[OHLCVIn]) -> WriteResult: ...
+
+    async def get_candles(
+        self,
+        instrument_id: uuid.UUID,
+        interval: CandleInterval,
+        *,
+        start: datetime,
+        end: datetime,
+        provider_id: uuid.UUID | None = None,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> Sequence[OHLCV]: ...
+
+
+class EconomicDataRepository(Protocol):
+    async def upsert_indicator(
+        self,
+        *,
+        code: str,
+        name: str,
+        country: str | None,
+        unit: str,
+        frequency: IndicatorFrequency,
+        provider_id: uuid.UUID,
+        provider_series_code: str,
+        enabled: bool,
+        metadata: dict[str, Any],
+    ) -> uuid.UUID: ...
+
+    async def get_indicator_by_code(self, code: str) -> EconomicIndicator | None: ...
+
+    async def list_indicators(
+        self,
+        *,
+        provider_id: uuid.UUID | None = None,
+        enabled: bool | None = None,
+        limit: int | None = 100,
+        offset: int = 0,
+    ) -> Sequence[EconomicIndicator]: ...
+
+    async def add_observations(
+        self,
+        observations: Sequence[EconomicObservationIn],
+        *,
+        ingested_at: datetime | None = None,
+    ) -> RevisionWriteResult: ...
+
+    async def get_observations(
+        self,
+        indicator_id: uuid.UUID,
+        *,
+        start: datetime,
+        end: datetime,
+        include_revisions: bool = False,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> Sequence[EconomicObservation]: ...

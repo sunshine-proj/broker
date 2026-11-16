@@ -1,0 +1,225 @@
+# Seed file: the source of truth for what the platform tracks (PRD FR-004).
+#
+# Applied on every startup, after migrations, by `python -m app.cli seed`.
+# Applying it is idempotent. Entries are matched on their natural key and
+# updated in place. Removing an entry does not delete it from the database
+# (history refers to it): set `enabled = false` instead.
+#
+# Never put credentials here. Provider API keys are environment variables.
+#
+# Sections and their fields:
+#
+#   [[exchanges]]    code, name, timezone, country (optional, 2 letters)
+#   [[providers]]    name, base_url (https only), enabled (default true),
+#                    configuration (optional table, see below)
+#   [[instruments]]  symbol, name, asset_type, exchange (an exchange code, optional),
+#                    currency (optional), enabled (default true), metadata (optional),
+#                    providers (table: provider name = that provider's symbol)
+#   [[indicators]]   code, name, unit, frequency, provider, provider_series_code,
+#                    country (optional), enabled (default true), metadata (optional)
+#
+#   asset_type: stock, etf, crypto, forex, government_bond_yield, interest_rate,
+#               commodity, index
+#   frequency:  daily, weekly, monthly, quarterly, annual
+#
+# Example instrument (forex and crypto pairs use BASE/QUOTE; currency is the quote):
+#
+#   [[instruments]]
+#   symbol = "EUR/USD"
+#   name = "Euro / US Dollar"
+#   asset_type = "forex"
+#   currency = "USD"
+#   providers = { twelve_data = "EUR/USD" }
+#
+# Provider configuration (all optional; defaults shown):
+#
+#   [[providers]]
+#   name = "example"
+#   base_url = "https://api.example.com"
+#
+#   [providers.configuration]
+#   timeout_seconds = 10
+#   max_retries = 3                   # retries of transient failures only
+#   backoff_base_seconds = 1          # doubles with each retry
+#   backoff_max_seconds = 30
+#   rate_limit_max_wait_seconds = 60  # wait this long for capacity, then refuse
+#   max_batch_size = 8                # most symbols per batched request (default: no cap)
+#   rate_limits = [
+#       { limit = 8, period = "minute" },   # period: second, minute, hour, day, month
+#       { limit = 800, period = "day" },
+#   ]
+#   # type: none (default), query or header. `env` names the environment
+#   # variable that holds the key and must end in _API_KEY or _TOKEN.
+#   auth = { type = "query", name = "apikey", env = "EXAMPLE_API_KEY" }
+#
+# Providers, instruments and indicators are added by the roadmap phase that
+# integrates each provider (Phase 4A onwards).
+#
+# To find the symbol a provider uses: python -m app.cli search PROVIDER QUERY
+
+[[exchanges]]
+code = "XNAS"
+name = "Nasdaq Stock Market"
+country = "US"
+timezone = "America/New_York"
+
+[[exchanges]]
+code = "XNYS"
+name = "New York Stock Exchange"
+country = "US"
+timezone = "America/New_York"
+
+[[exchanges]]
+code = "ARCX"
+name = "NYSE Arca"
+country = "US"
+timezone = "America/New_York"
+
+# --- Twelve Data ---------------------------------------------------------------
+# Limits are those of the free Basic plan, checked 2026-11-16: 8 credits per
+# minute and 800 per day, one credit per symbol. See docs/providers/twelve_data.md.
+#
+# Budget (PRD section 8): 10 stocks and ETFs polled every 15 minutes over a
+# 6.5-hour session use 260 credits a day, and 5 forex pairs polled every 15
+# minutes around the clock use 480: 740 of 800. Adding instruments needs a
+# longer interval or a paid plan.
+
+[[providers]]
+name = "twelve_data"
+base_url = "https://api.twelvedata.com"
+
+[providers.configuration]
+rate_limits = [
+    { limit = 8, period = "minute" },
+    { limit = 800, period = "day" },
+]
+# One credit per symbol, so a request can carry at most a minute's worth.
+max_batch_size = 8
+# A batch that has to wait for the next minute's credits must not be refused.
+rate_limit_max_wait_seconds = 65
+# Per-minute credits come back on the minute; retrying sooner only wastes them.
+max_retries = 2
+backoff_base_seconds = 15
+backoff_max_seconds = 60
+auth = { type = "header", name = "Authorization", prefix = "apikey ", env = "TWELVEDATA_API_KEY" }
+
+# Stocks
+
+[[instruments]]
+symbol = "AAPL"
+name = "Apple Inc."
+asset_type = "stock"
+exchange = "XNAS"
+currency = "USD"
+providers = { twelve_data = "AAPL" }
+
+[[instruments]]
+symbol = "MSFT"
+name = "Microsoft Corporation"
+asset_type = "stock"
+exchange = "XNAS"
+currency = "USD"
+providers = { twelve_data = "MSFT" }
+
+[[instruments]]
+symbol = "NVDA"
+name = "NVIDIA Corporation"
+asset_type = "stock"
+exchange = "XNAS"
+currency = "USD"
+providers = { twelve_data = "NVDA" }
+
+[[instruments]]
+symbol = "AMZN"
+name = "Amazon.com, Inc."
+asset_type = "stock"
+exchange = "XNAS"
+currency = "USD"
+providers = { twelve_data = "AMZN" }
+
+[[instruments]]
+symbol = "GOOGL"
+name = "Alphabet Inc. Class A"
+asset_type = "stock"
+exchange = "XNAS"
+currency = "USD"
+providers = { twelve_data = "GOOGL" }
+
+[[instruments]]
+symbol = "JPM"
+name = "JPMorgan Chase & Co."
+asset_type = "stock"
+exchange = "XNYS"
+currency = "USD"
+providers = { twelve_data = "JPM" }
+
+[[instruments]]
+symbol = "XOM"
+name = "Exxon Mobil Corporation"
+asset_type = "stock"
+exchange = "XNYS"
+currency = "USD"
+providers = { twelve_data = "XOM" }
+
+# ETFs
+
+[[instruments]]
+symbol = "SPY"
+name = "SPDR S&P 500 ETF Trust"
+asset_type = "etf"
+exchange = "ARCX"
+currency = "USD"
+providers = { twelve_data = "SPY" }
+
+[[instruments]]
+symbol = "QQQ"
+name = "Invesco QQQ Trust"
+asset_type = "etf"
+exchange = "XNAS"
+currency = "USD"
+providers = { twelve_data = "QQQ" }
+
+[[instruments]]
+symbol = "VTI"
+name = "Vanguard Total Stock Market ETF"
+asset_type = "etf"
+exchange = "ARCX"
+currency = "USD"
+providers = { twelve_data = "VTI" }
+
+# Forex: symbol is BASE/QUOTE and currency is the quote currency.
+
+[[instruments]]
+symbol = "EUR/USD"
+name = "Euro / US Dollar"
+asset_type = "forex"
+currency = "USD"
+providers = { twelve_data = "EUR/USD" }
+
+[[instruments]]
+symbol = "GBP/USD"
+name = "British Pound / US Dollar"
+asset_type = "forex"
+currency = "USD"
+providers = { twelve_data = "GBP/USD" }
+
+[[instruments]]
+symbol = "USD/JPY"
+name = "US Dollar / Japanese Yen"
+asset_type = "forex"
+currency = "JPY"
+providers = { twelve_data = "USD/JPY" }
+
+[[instruments]]
+symbol = "USD/CHF"
+name = "US Dollar / Swiss Franc"
+asset_type = "forex"
+currency = "CHF"
+providers = { twelve_data = "USD/CHF" }
+
+[[instruments]]
+symbol = "EUR/GBP"
+name = "Euro / British Pound"
+asset_type = "forex"
+currency = "GBP"
+providers = { twelve_data = "EUR/GBP" }

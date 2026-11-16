@@ -1,0 +1,206 @@
+
+All the review findings are now applied across the five docs; no code changed. Many of the fixes required a product decision, so I made one in each case and list them below for you to overrule.
+
+Decisions I made on your behalf
+Rates and yields: anything quoted for an instrument (prices, exchange rates, benchmark yields, SOFR, index levels) is a market observation. Periodic statistics that get revised (CPI, GDP) are economic observations.
+Deduplication: market observations and candles are immutable, so a repeat writes nothing and a differing value is logged as a warning. Economic revisions are stored as a new row beside the old one.
+Keys: entity tables use UUIDs. The two hypertables use a natural composite key including the time column, with no surrogate id.
+Instrument management: a version-controlled seed file is the source of truth, and the API stays read-only. Write endpoints move to Phase 12, after authentication exists.
+Manual collection: POST /collectors/{job}/run, protected by an ADMIN_API_KEY header check and disabled when the key is unset.
+Binance stays in Phase 8: until then crypto comes from CoinGecko at 5 minutes (about 8,640 of its 10,000 monthly calls). The 1-minute target applies once Binance arrives.
+Twelve Data budget: the default set is 10 stocks/ETFs plus 5 forex pairs at 15 minutes, which uses 740 of 800 daily credits. Stocks are polled only during trading hours.
+Dropped or deferred scope: EURIBOR is replaced by €STR, PMI is out of scope, and individual bond data is deferred until a provider supplies it. Stock market cap and ETF NAV/AUM are marked plan-dependent.
+Stack specifics: async SQLAlchemy 2.x with asyncpg, APScheduler 3.x, pydantic-settings, and standard logging with a JSON formatter.
+httpx: it stays for provider calls. The test client may move to httpx2 when the pinned Starlette requires it.
+Test database: integration tests run against a separate database on the Compose db service.
+What changed per file
+PRD.md: the data model section is rewritten with the missing entities, fields and rules. It also gains a rate-budget requirement (FR-011), API conventions, measurable performance targets, a volume and retention estimate, a market indices section, and a refresh table per provider.
+ROADMAP.md:
+Phase 4 is split into 4A–4D, one provider each.
+Ingestion validation moves from Phase 9 to Phase 3.
+The duplicate backup, backfill and restart-policy tasks are resolved.
+New tasks cover continuous integration, the test database, the seed loader, New York Fed, the Commodities dashboard and market indices.
+Phase 0 remains ticked.
+AGENTS.md: adds the pinned stack choices, the credentials rule, the hypertable key rule, the test strategy, and a rule for which document wins when two disagree.
+SKILLS.md: rewritten from "required knowledge" lists into concrete coding conventions, including a table of what each package may contain.
+README.md: endpoints, dashboards and providers now match the PRD. It also has a status note, and unbuilt sections are marked "planned".
+Things to check
+Quotas: I confirmed the CoinGecko and Twelve Data free-plan limits by web search today. The other provider claims (ECB daily rates, EURIBOR and PMI licensing, Binance limits) are still from memory, and the PRD says to re-check each at integration time.
+Continuous integration host: the roadmap task doesn't name one, because this isn't a git repository yet.
+Performance targets: the numbers in the PRD are my proposals, not measurements.
+Sources:
+
+CoinGecko API pricing
+CoinGecko rate limit docs
+Twelve Data pricing
+Twelve Data API credit limits
+httpx2 migration guide
+
+
+
+===========================================
+
+
+
+Phase 1 (Backend Foundation) is implemented and verified, with one roadmap task left unticked: the continuous integration workflow is written but has never run, because this isn't a git repository yet.
+
+What was verified
+Tests and lint: 18 tests pass and Ruff is clean. Four of the tests run against a real TimescaleDB test database.
+Stack: docker compose up -d --build --wait runs the migration, then the backend, and everything reports healthy.
+Health endpoint: GET /api/v1/health returns 200 with "database": "ok". With the database stopped it returns 503 with "database": "unavailable", and recovers to 200 once the database is back, without restarting the backend.
+Migrations: upgrade, downgrade to base, and upgrade again all work on the test database. The application database is at revision 0001.
+Error shape: an unknown route returns {"error": {"code": "not_found", "message": "Not Found"}}.
+What was added
+Application: an app factory in main.py, settings in settings.py, JSON logging in logging.py, and the async engine and session dependency in database.py.
+API: the /api/v1 router with the health endpoint, and global exception handling in errors.py using the error shape from the PRD.
+Migrations: Alembic under backend/migrations/, with a first revision that enables TimescaleDB.
+Checks: scripts/check.sh runs Ruff and pytest; scripts/check-docker.sh runs the same in a container for hosts without a Python environment, like this one.
+Docs: docs/architecture.md is new, and the README, SKILLS.md and ROADMAP.md are updated.
+Changes to existing behaviour
+Start command: the backend now starts with uvicorn app.main:create_app --factory; there is no module-level app any more. The / route from Phase 0 is gone, and the container health check uses /api/v1/health.
+Migrations location: they live in backend/migrations/, not database/migrations/ as the README originally sketched, so they ship in the backend image. I removed the database/ directory and its init script; the migration now enables the extension.
+Compose: a one-shot migrate service runs before the backend, so docker compose ps -a shows it as exited with code 0.
+Test client dependency: dev requirements use httpx2 instead of httpx, which removes the Starlette deprecation warning. httpx returns in Phase 3 for provider calls.
+Env files: LOG_LEVEL, LOG_FORMAT and POSTGRES_TEST_DB were added to both .env.example and your local .env.
+Open items
+Continuous integration: .github/workflows/ci.yml assumes GitHub Actions. It needs git init, a push, and one green run before the roadmap box can be ticked.
+Integration tests skip when the database is unreachable: this is deliberate for local runs; the CI workflow sets REQUIRE_DATABASE=1 so a skip becomes a failure there.
+Next is Phase 2 (Financial Data Model): the models, hypertables, repositories and seed loader from PRD section 7.
+
+
+
+
+===========================================
+
+
+
+Phase 2 (Financial Data Model) is implemented and verified: all 20 roadmap tasks are ticked, and 58 tests pass with Ruff clean.
+
+What was verified
+Tests: 58 pass, 29 of them against a real TimescaleDB test database.
+Acceptance criteria:
+re-inserting an existing market observation writes nothing;
+a revised economic value is stored beside the earlier one;
+two providers' values for the same instrument and time are both kept;
+applying the seed twice creates no duplicates.
+Schema drift: a test compares the models with the migrated schema and finds no difference.
+Migrations: upgrade, downgrade to base, and upgrade again all work with the new revision.
+Running stack: the application database is at revision 0002, market_observation and ohlcv are hypertables, and the seed created two exchanges. Re-running the seed changed nothing, and a missing seed file exits with code 1.
+What was added
+Models: all ten tables from PRD section 7 under backend/app/models/, with the enumerations in enums.py.
+Migration: 0002 creates the tables, hypertables and indexes.
+Repositories: the protocols are in interfaces.py, with SQL implementations for providers, instruments, market data and economic data. The immutability rule is in market_data.py and the revision rule in economic_data.py.
+Seed: backend/seed.toml is validated and applied by python -m app.cli seed, which the migrate service now runs after the migrations.
+Docs: docs/architecture.md gains data model, repository and seed sections; the README, PRD and SKILLS.md are updated to match.
+Decisions I made
+Seed format is TOML: Python reads it from the standard library, so it needs no new dependency.
+Seed runs in the migrate service, not inside the backend: an invalid file stops the startup with a clear log line, and the backend never starts half-configured.
+Removed seed entries are not deleted: stored history refers to them, so you disable them with enabled = false.
+Enumerations are text with a check constraint, not PostgreSQL enum types, so adding a value is an ordinary migration.
+The seed file ships nearly empty: it has two exchanges (Nasdaq and NYSE) and no providers or instruments. Those arrive with each provider in Phase 4.
+One enumeration added to the PRD: indicator frequency (daily to annual), which the model needed.
+Limitations
+Candle interval is free text: nothing yet stops one provider writing 1d and another 1day. Phase 3 normalization needs to fix the allowed values.
+Collector execution and provider health have tables but no repositories: they come with the phases that write them (3 and 5).
+Performance targets are untested: the PRD's query-time targets haven't been measured, since there is no realistic data volume yet.
+Continuous integration is still unticked from Phase 1: the workflow has never run because this isn't a git repository.
+
+
+
+
+===========================================
+
+
+
+Phase 3 (Provider Integration Framework) is implemented and verified: all 16 roadmap tasks are ticked, 158 tests pass and Ruff is clean. No real provider exists yet, so nothing is collected; that starts in Phase 4.
+
+A Phase 2 bug found and fixed along the way
+The check constraints from Phase 2 had been created with a doubled prefix, such as ck_instrument_ck_instrument_asset_type. Alembic applied the naming convention on top of the names I had already written out, and my tests matched by substring, so they missed it.
+
+Fix: I corrected migrations 0002 and 0003 and added a test that compares constraint names exactly.
+Database reset: to apply the corrected migrations I rolled the application database back to revision 0001 and re-migrated it. It held only the two seeded exchanges, which the seed recreated. I also dropped and recreated the test database.
+What was verified
+Tests: 158 pass, 36 of them against the real TimescaleDB test database. Provider tests use a mock transport and a fake clock, so nothing touches the network or sleeps.
+Acceptance criteria:
+a provider failure is contained and recorded without raising;
+malformed responses are rejected;
+every attempt, including retries, takes rate-limit credits;
+an adapter's output goes through ingestion into the database.
+Credential safety: a test confirms the API key never appears in error messages or log records, including when the underlying error text contains it.
+Running stack: the application database is at revision 0003, all services are healthy, and the built image imports the new modules.
+What was added
+Provider base and factory: adapters subclass the base in base.py, and factory.py builds them from their database row.
+HTTP client: http.py handles authentication, timeouts, retries with exponential backoff, Retry-After, and decoding numbers as Decimal.
+Rate limiter: rate_limit.py enforces every configured limit per provider over a rolling window.
+Normalized schemas: Quote, Candle and IndicatorValue in normalized.py.
+Ingestion and validation: ingestion.py resolves provider symbols to instruments, rejects invalid values with a logged reason, and stores the rest.
+Provider health: provider_health.py records success and failure; three consecutive failures mark a provider down.
+Docs: docs/providers/README.md is the integration checklist for Phase 4, and docs/architecture.md has a new framework section.
+Decisions I made
+Provider settings live in the seed file and are strictly validated. A mistyped setting, or a base_url that isn't https, stops the startup.
+Credentials are referenced by environment variable name only, and the name must end in _API_KEY or _TOKEN, so configuration can't be used to send another secret (such as the database password) to a provider.
+An exhausted quota fails fast. A request waits at most 60 seconds for capacity by default, then is refused, so a used-up daily or monthly quota doesn't block.
+Candle intervals are now a fixed set (1min to 1month), enforced in the schema and by a database constraint. This closes the free-text limitation from Phase 2.
+New dependencies: httpx 0.28.1 and python-dotenv 1.2.4 are pinned (the latter was already installed transitively).
+Limitations
+Rate-limit counts are in memory: they restart from zero when the backend restarts, so a restart mid-day could overshoot a daily or monthly quota. The startup budget check in Phase 5 is what keeps planned usage inside those quotas; I noted this in the PRD.
+The framework isn't wired into the running app yet: nothing builds a provider factory at startup, because nothing calls a provider until Phases 4 and 5.
+Continuous integration is still unticked from Phase 1: the workflow has never run because this isn't a git repository.
+
+
+
+
+===========================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
