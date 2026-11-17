@@ -10,6 +10,7 @@ Usage:
     python -m app.cli jobs
     python -m app.cli run JOB
     python -m app.cli reader-role
+    python -m app.cli storage-policies
 """
 
 import argparse
@@ -45,11 +46,13 @@ from app.repositories.instruments import SqlInstrumentRepository
 from app.repositories.market_data import SqlMarketDataRepository
 from app.repositories.provider_health import SqlProviderHealthRepository
 from app.repositories.providers import SqlProviderRepository
+from app.repositories.quality import SqlQualityRepository
 from app.services.collection import CollectionOutcome, CollectionService
 from app.services.ingestion import IngestionService
 from app.services.provider_health import ProviderHealthService
 from app.services.reader_role import ReaderRoleError, ensure_reader_role
 from app.services.seed import SeedError, apply_seed, load_seed_file
+from app.services.storage_policies import StoragePolicies, apply_storage_policies
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +139,7 @@ async def collect(settings: Settings, request: CollectRequest) -> CollectionOutc
                     instruments=instruments,
                     market_data=SqlMarketDataRepository(session),
                     economic_data=economic_data,
+                    quality=SqlQualityRepository(session),
                 ),
                 health=ProviderHealthService(SqlProviderHealthRepository(session)),
             )
@@ -225,6 +229,23 @@ async def reader_role(settings: Settings) -> None:
         await engine.dispose()
 
 
+async def storage_policies(settings: Settings) -> None:
+    """Apply the compression and retention policies from the environment."""
+    engine = create_engine(settings)
+    try:
+        async with engine.begin() as connection:
+            await apply_storage_policies(
+                connection,
+                StoragePolicies(
+                    compress_after_days=settings.compress_after_days,
+                    observation_retention_days=settings.observation_retention_days,
+                    candle_retention_days=settings.candle_retention_days,
+                ),
+            )
+    finally:
+        await engine.dispose()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -238,6 +259,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("jobs", help="list collection jobs and their status")
     commands.add_parser("reader-role", help="set up the read-only database role for Grafana")
+    commands.add_parser("storage-policies", help="apply the compression and retention policies")
     run_parser = commands.add_parser("run", help="run a collection job now")
     run_parser.add_argument("job")
 
@@ -300,6 +322,8 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(list_jobs(settings))
         elif args.command == "reader-role":
             asyncio.run(reader_role(settings))
+        elif args.command == "storage-policies":
+            asyncio.run(storage_policies(settings))
         elif args.command == "run":
             result = asyncio.run(run_job(settings, args.job))
             return 0 if result.status is CollectorStatus.SUCCESS else 2

@@ -326,6 +326,7 @@ Initial dashboards:
 - Economic Indicators
 - Collector Monitoring
 - Commodities (delivered in Phase 8, together with commodity data)
+- Data Quality (delivered in Phase 9)
 
 ### FR-009: Monitoring
 
@@ -355,6 +356,27 @@ Each provider has a configured quota (per minute, per day, or per month, as the 
 
 The runtime limiter counts usage in memory, so its counts restart from zero when the backend restarts. When the provider nevertheless answers HTTP 429, all requests to that provider pause until its allowance is expected back. The startup check is what keeps planned usage inside daily and monthly quotas; the limiter guards against bursts, retries and manual triggers on top of it.
 
+### FR-012: Data Quality
+
+The platform detects and reports data-quality problems. It never corrects or deletes a stored value.
+
+Checks run on a schedule (a `quality` job in the seed file, every 15 minutes by default) and record each problem as a data-quality issue:
+
+| Issue | Detected when | Closed when |
+| --- | --- | --- |
+| `stale` | A series a job collects has no value newer than the job's `stale_after_minutes`. For market-hours jobs, only while the exchange's session has been open at least that long. | A newer value arrives |
+| `gap` | Two consecutive values of a series are further apart than the job's `gap_after_minutes`, within the check's lookback window | A backfill run has re-fetched the range: `filled`, `no_data` (the provider has nothing for it, such as a holiday) or `unrecoverable` (the provider cannot re-fetch it, or failed three times) |
+| `conflict` | A provider re-sends a stored observation or candle with a different value (section 7). The stored value is kept. | Recorded closed: it is an event |
+| `spike` | A price-like value differs from the previous value of its series by more than `spike_percent` (or, for values in percent, `spike_points`) | Recorded closed: it is an event |
+| `discrepancy` | Two providers' values of the same instrument and observation type at the same time differ by more than `discrepancy_percent` (or `discrepancy_points` for values in percent). The older of the two latest values is compared with the other provider's value at that time (its newest at or before it, at most a day earlier). | The values agree again |
+
+- Job settings for stale and gap detection have defaults: three intervals for interval jobs, four days for daily jobs. `business_days_only` counts only Monday to Friday (UTC) time, for markets that close at weekends. Instruments with `published_on_change = true` in their metadata (rates recorded only when they change) are not checked for gaps.
+- A conflicting stored row and a spiking value are marked `quality_status = suspect`. That is the only change ever made to a stored observation; its value never changes.
+- Gaps are re-fetched by a `backfill` job per provider, at most `max_requests` requests per run, so backfill fits the provider's rate budget (FR-011).
+- Issues are readable through `GET /api/v1/quality/issues` and the Data Quality dashboard.
+
+Collection latency is reported per provider and kind of data: the delay between a value's own timestamp and its storage, and each job run's duration.
+
 ## 6. Non-Functional Requirements
 
 ### Performance
@@ -374,7 +396,11 @@ The design target is up to 100 enabled instruments. The largest contributor is 1
 
 ### Retention
 
-Raw observations are kept indefinitely by default; nothing is deleted automatically. Compression of older time-series chunks and any optional retention policy are configured in Phase 9.
+Raw observations are kept indefinitely by default; nothing is deleted automatically.
+
+- Market observations and candles older than `COMPRESS_AFTER_DAYS` (default 30) are compressed by TimescaleDB. Compressed data stays queryable and can still be inserted into.
+- Optional retention: `OBSERVATION_RETENTION_DAYS` and `CANDLE_RETENTION_DAYS` drop older market observations and candles. Both are unset by default. Economic observations are never dropped.
+- The policies are applied at every startup from these environment variables.
 
 ### Reliability
 
@@ -424,7 +450,7 @@ So a Treasury yield or SOFR is an instrument with market observations; CPI is an
 - `observation_type`: `price`, `nav`, `rate`, `yield`, `index_level`, `market_cap`, `volume`, `circulating_supply`, `total_supply`, `dominance`.
 - `freshness`: `real_time`, `delayed`, `end_of_day`.
 - `quote_kind`: `traded`, `indicative`, `reference`.
-- `quality_status`: `ok`, `suspect`.
+- `quality_status`: `ok`, `suspect`. Set by the data-quality checks (FR-012); every other column of a stored observation is immutable.
 - `frequency` (economic indicators): `daily`, `weekly`, `monthly`, `quarterly`, `annual`.
 - `interval` (candles): `1min`, `5min`, `15min`, `30min`, `1h`, `4h`, `1day`, `1week`, `1month`.
 
@@ -564,7 +590,7 @@ Primary key: (`indicator_id`, `observed_at`, `ingested_at`).
 
 #### Collector Execution
 
-One run of a collection job.
+One run of a collection job. A `quality` job has no provider; every other job kind (`quotes`, `candles`, `history`, `indicators`, `backfill`) belongs to one provider.
 
 Fields:
 
@@ -576,6 +602,24 @@ Fields:
 - `status` (`running`, `success`, `failed`)
 - `records_written`
 - `error`
+
+#### Data Quality Issue
+
+One data-quality problem (FR-012).
+
+Fields:
+
+- `id`
+- `kind` (`stale`, `gap`, `conflict`, `spike`, `discrepancy`)
+- `status` (`open`, `closed`)
+- `resolution` (`cleared`, `filled`, `no_data`, `unrecoverable`, `recorded`; null while open)
+- `fingerprint` (unique: identifies the problem, so that detecting it again updates the same issue)
+- `instrument_id`, `provider_id`, `other_provider_id` (discrepancies), `observation_type`, `interval` (candle gaps), all nullable
+- `range_start`, `range_end` (the affected period, where there is one)
+- `message`, `details`
+- `detected_at`, `last_seen_at`, `closed_at`
+
+A `stale` or `discrepancy` issue that closes and recurs is reopened. A closed gap is not reopened.
 
 #### Provider Health
 

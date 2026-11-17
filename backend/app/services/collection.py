@@ -34,7 +34,7 @@ class CollectionOutcome:
     errors: tuple[str, ...] = field(default=())
 
 
-def _combine(results: list[IngestionResult]) -> IngestionResult:
+def combine(results: list[IngestionResult]) -> IngestionResult:
     return IngestionResult(
         received=sum(r.received for r in results),
         written=sum(r.written for r in results),
@@ -195,5 +195,5 @@ class CollectionService:
             results.append(result)
 
         return CollectionOutcome(
-            provider.name, len(symbols), succeeded, _combine(results), tuple(errors)
+            provider.name, len(symbols), succeeded, combine(results), tuple(errors)
         )

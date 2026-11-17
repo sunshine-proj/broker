@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import dotenv_values
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -47,6 +47,25 @@ class Settings(BaseSettings):
     # Read-only database role for Grafana, set up by `python -m app.cli reader-role`.
     grafana_db_user: str = "grafana_reader"
     grafana_db_password: SecretStr | None = None
+
+    # Time-series storage (PRD section 6, Retention), applied by
+    # `python -m app.cli storage-policies`. Unset compression means never;
+    # unset retention means keep forever.
+    compress_after_days: int | None = Field(default=30, gt=0)
+    observation_retention_days: int | None = Field(default=None, gt=0)
+    candle_retention_days: int | None = Field(default=None, gt=0)
+
+    @field_validator(
+        "compress_after_days",
+        "observation_retention_days",
+        "candle_retention_days",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("admin_api_key", "grafana_db_password", mode="before")
     @classmethod

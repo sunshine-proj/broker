@@ -74,6 +74,7 @@ def test_every_dashboard_in_the_prd_exists() -> None:
         "Economic Indicators",
         "Collector Monitoring",
         "Commodities",
+        "Data Quality",
     }
 
 
@@ -128,6 +129,7 @@ def test_dashboard_structure(board: dict[str, Any]) -> None:
             ["European Central Bank", "DTCC Solutions LLC", "FRED® API"],
         ),
         ("commodities", ["Twelve Data"]),
+        ("data-quality", ["CoinGecko", "Binance", "DTCC Solutions LLC", "FRED® API"]),
         ("economic-indicators", ["European Central Bank", "FRED® API"]),
     ],
 )
@@ -152,9 +154,15 @@ def test_market_dashboards_have_variables() -> None:
 def test_series_keep_providers_apart() -> None:
     """Time series built from v_observation name each line by symbol and provider."""
     for board in boards():
-        for title, query in queries(board):
-            if "FROM v_observation" in query:
-                assert "|| ' · ' || provider AS metric" in query, (board["uid"], title)
+        for item in panels(board):
+            if item["type"] != "timeseries":
+                continue
+            for target in item.get("targets", []):
+                if "FROM v_observation" in target["rawSql"]:
+                    assert "|| ' · ' || provider AS metric" in target["rawSql"], (
+                        board["uid"],
+                        item["title"],
+                    )
 
 
 # --- SQL ---------------------------------------------------------------------------------------

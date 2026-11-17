@@ -19,17 +19,27 @@
 #                    providers (table: provider name = that provider's symbol)
 #   [[indicators]]   code, name, unit, frequency, provider, provider_series_code,
 #                    country (optional), enabled (default true), metadata (optional)
-#   [[jobs]]         name, provider, kind, and exactly one schedule:
-#                    interval_minutes (divides 60, or whole hours dividing 24;
-#                    aligned to the clock in UTC) or daily_at ("HH:MM" UTC).
+#   [[jobs]]         name, provider (not for quality jobs), kind, and exactly
+#                    one schedule: interval_minutes (divides 60, or whole hours
+#                    dividing 24; aligned to the clock in UTC) or daily_at
+#                    ("HH:MM" UTC).
 #                    Optional: market_hours_only, retry_minutes, asset_types,
 #                    observation_types (quotes), candle_interval (candles),
-#                    lookback_days (candles, history, indicators), enabled.
+#                    lookback_days (candles, history, indicators, quality), enabled.
+#                    Data quality of quotes, candles and history jobs (PRD FR-012):
+#                    stale_after_minutes (default 3 intervals, or 4 days for a
+#                    daily job), gap_after_minutes (default: none, or the candle
+#                    interval), business_days_only (count Monday to Friday only).
+#                    Backfill jobs: max_requests. Quality jobs: spike_percent,
+#                    spike_points, discrepancy_percent, discrepancy_points.
 #
 #   asset_type: stock, etf, crypto, forex, government_bond_yield, interest_rate,
 #               commodity, index
 #   frequency:  daily, weekly, monthly, quarterly, annual
-#   kind:       quotes, candles, history, indicators
+#   kind:       quotes, candles, history, indicators, quality, backfill
+#
+# Instrument metadata `published_on_change = true` marks a rate recorded only
+# on the dates it changes; it is never checked for gaps.
 #
 # Jobs are checked against each provider's rate limits before the seed is
 # applied; a configuration that would exceed one is refused (PRD FR-011).
@@ -619,14 +629,14 @@ providers = { ecb = "EST/B.EU000A2X2A25.WT" }
 symbol = "ECB-DFR"
 name = "ECB deposit facility rate"
 asset_type = "interest_rate"
-metadata = { area = "euro area" }
+metadata = { area = "euro area", administrator = "European Central Bank", published_on_change = true }
 providers = { ecb = "FM/B.U2.EUR.4F.KR.DFR.LEV" }
 
 [[instruments]]
 symbol = "ECB-MRO"
 name = "ECB main refinancing operations rate"
 asset_type = "interest_rate"
-metadata = { area = "euro area" }
+metadata = { area = "euro area", administrator = "European Central Bank", published_on_change = true }
 providers = { ecb = "FM/B.U2.EUR.4F.KR.MRR_FR.LEV" }
 
 # Euro-area economic indicators. Each period is dated by its first day.
@@ -973,9 +983,9 @@ providers = { us_treasury = "BC_20YEAR" }
 # Times are UTC. Budgets (per provider sections above):
 #   Twelve Data: 14 listed x 27 polls (09:30 to 16:00 New York, both ends)
 #                + 5 forex x 48 polls + 1 gold x 48 polls
-#                + 20 candles x 2 (with retry) = 706 of 800 a day.
-#   CoinGecko:   288 market polls + 12 dominance polls x 2 requests = 312 a day,
-#                9,672 in a 31-day month, of 10,000.
+#                + 20 candles x 2 (with retry) + 5 backfill = 711 of 800 a day.
+#   CoinGecko:   288 market polls + 12 dominance polls x 2 requests + 5 backfill
+#                = 317 a day, 9,827 in a 31-day month, of 10,000.
 
 [[jobs]]
 name = "twelve_data_listed_quotes"
@@ -991,6 +1001,10 @@ provider = "twelve_data"
 kind = "quotes"
 asset_types = ["forex"]
 interval_minutes = 30
+# Forex closes from Friday 22:00 to Sunday 21:00 UTC.
+business_days_only = true
+stale_after_minutes = 240
+gap_after_minutes = 240
 
 [[jobs]]
 name = "twelve_data_commodity_quotes"
@@ -998,6 +1012,9 @@ provider = "twelve_data"
 kind = "quotes"
 asset_types = ["commodity"]
 interval_minutes = 30
+business_days_only = true
+stale_after_minutes = 240
+gap_after_minutes = 240
 
 # Daily bars are dated at midnight UTC and closed 24 hours later. 00:40 keeps
 # the run clear of the quote jobs at 00:30 and 01:00.
@@ -1009,6 +1026,9 @@ candle_interval = "1day"
 lookback_days = 5
 daily_at = "00:40"
 retry_minutes = 60
+# No bars at weekends for stocks; exchange holidays show up as gaps that
+# backfill closes as no_data.
+business_days_only = true
 
 [[jobs]]
 name = "coingecko_quotes"
@@ -1016,6 +1036,7 @@ provider = "coingecko"
 kind = "quotes"
 observation_types = ["price", "market_cap", "volume", "circulating_supply", "total_supply"]
 interval_minutes = 5
+gap_after_minutes = 30
 
 [[jobs]]
 name = "coingecko_dominance"
@@ -1031,6 +1052,9 @@ provider = "ecb"
 kind = "quotes"
 daily_at = "16:00"
 retry_minutes = 60
+# Published on TARGET business days; key rates only when they change.
+business_days_only = true
+gap_after_minutes = 1440
 
 [[jobs]]
 name = "ecb_indicators"
@@ -1047,6 +1071,7 @@ provider = "binance"
 kind = "quotes"
 observation_types = ["price"]
 interval_minutes = 1
+gap_after_minutes = 5
 
 [[jobs]]
 name = "binance_daily_candles"
@@ -1066,6 +1091,8 @@ provider = "nyfed"
 kind = "quotes"
 daily_at = "20:30"
 retry_minutes = 60
+business_days_only = true
+gap_after_minutes = 1440
 
 # The Treasury posts the day's curve in the late afternoon, New York time.
 [[jobs]]
@@ -1074,6 +1101,8 @@ provider = "us_treasury"
 kind = "quotes"
 daily_at = "23:30"
 retry_minutes = 60
+business_days_only = true
+gap_after_minutes = 1440
 
 # FRED jobs are disabled until FRED_API_KEY is set and its terms of use are
 # settled (see docs/providers/fred.md).
@@ -1093,3 +1122,59 @@ lookback_days = 730
 daily_at = "14:00"
 retry_minutes = 60
 enabled = false
+
+# --- Data quality (PRD FR-012) ---------------------------------------------------------
+# Checks every job's data for stale series, gaps, spikes and provider
+# discrepancies. Reads the database only; no provider is called.
+[[jobs]]
+name = "data_quality_check"
+kind = "quality"
+interval_minutes = 15
+# How far back gaps are looked for.
+lookback_days = 30
+
+# Backfill re-fetches gaps the checks found, a few requests a day per
+# provider, counted in each provider's budget. Binance quotes have no history,
+# so their gaps are closed as unrecoverable; Binance candle gaps are filled.
+[[jobs]]
+name = "twelve_data_backfill"
+provider = "twelve_data"
+kind = "backfill"
+daily_at = "03:10"
+max_requests = 5
+
+[[jobs]]
+name = "coingecko_backfill"
+provider = "coingecko"
+kind = "backfill"
+daily_at = "03:20"
+max_requests = 5
+
+[[jobs]]
+name = "binance_backfill"
+provider = "binance"
+kind = "backfill"
+daily_at = "03:30"
+max_requests = 10
+
+[[jobs]]
+name = "ecb_backfill"
+provider = "ecb"
+kind = "backfill"
+daily_at = "03:40"
+max_requests = 10
+
+[[jobs]]
+name = "nyfed_backfill"
+provider = "nyfed"
+kind = "backfill"
+daily_at = "03:50"
+max_requests = 5
+
+# Each request downloads a year of the curve (about 20 seconds).
+[[jobs]]
+name = "us_treasury_backfill"
+provider = "us_treasury"
+kind = "backfill"
+daily_at = "04:00"
+max_requests = 3

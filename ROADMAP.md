@@ -329,17 +329,17 @@ Delivered beyond the list: a US Treasury adapter (the primary source of the yiel
 
 ### Tasks
 
-- [ ] Implement stale data detection.
-- [ ] Implement missing data detection.
-- [ ] Implement gap backfill that re-fetches detected missing ranges.
-- [ ] Implement duplicate observation checks.
-- [ ] Implement provider discrepancy reporting.
-- [ ] Implement data quality status updates.
-- [ ] Implement collection latency metrics.
-- [ ] Configure compression for older time-series chunks.
-- [ ] Implement optional database retention policies.
-- [ ] Test application recovery after restart.
-- [ ] Test provider outage scenarios.
+- [x] Implement stale data detection.
+- [x] Implement missing data detection.
+- [x] Implement gap backfill that re-fetches detected missing ranges.
+- [x] Implement duplicate observation checks.
+- [x] Implement provider discrepancy reporting.
+- [x] Implement data quality status updates.
+- [x] Implement collection latency metrics.
+- [x] Configure compression for older time-series chunks.
+- [x] Implement optional database retention policies.
+- [x] Test application recovery after restart.
+- [x] Test provider outage scenarios.
 
 ### Acceptance Criteria
 

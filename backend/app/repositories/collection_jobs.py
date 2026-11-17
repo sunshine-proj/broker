@@ -24,7 +24,7 @@ class SqlCollectionJobRepository:
         self,
         *,
         name: str,
-        provider_id: uuid.UUID,
+        provider_id: uuid.UUID | None,
         kind: JobKind,
         interval_minutes: int | None,
         daily_at: time | None,
@@ -113,7 +113,7 @@ class SqlCollectorExecutionRepository:
         self,
         *,
         job_name: str,
-        provider_id: uuid.UUID,
+        provider_id: uuid.UUID | None,
         trigger: ExecutionTrigger,
         at: datetime,
     ) -> uuid.UUID:

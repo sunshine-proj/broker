@@ -18,6 +18,8 @@ from app.models.enums import (
     CandleInterval,
     CollectorStatus,
     IndicatorFrequency,
+    IssueKind,
+    IssueStatus,
     ObservationType,
     QuoteKind,
 )
@@ -34,6 +36,7 @@ from app.schemas.api import (
     ObservationOut,
     Page,
     ProviderOut,
+    QualityIssueOut,
     RateLimitOut,
 )
 from app.schemas.provider_config import ProviderSettings
@@ -364,3 +367,29 @@ async def executions(
 ) -> Page[ExecutionOut]:
     rows = await repository.executions(job=job, status=status, limit=limit + 1, offset=offset)
     return _page(rows, limit, offset, ExecutionOut.model_validate)
+
+
+async def quality_issues(
+    repository: SqlReadRepository,
+    *,
+    kind: IssueKind | None,
+    status: IssueStatus | None,
+    provider: str | None,
+    symbol: str | None,
+    start: datetime,
+    end: datetime,
+    limit: int,
+    offset: int,
+) -> Page[QualityIssueOut]:
+    await _check_provider(repository, provider)
+    rows = await repository.quality_issues(
+        kind=kind,
+        status=status,
+        provider=provider,
+        symbol=symbol,
+        start=start,
+        end=end,
+        limit=limit + 1,
+        offset=offset,
+    )
+    return _page(rows, limit, offset, QualityIssueOut.model_validate)

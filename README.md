@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 7 are complete (the MVP), and Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover; see [ROADMAP.md](ROADMAP.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
+**Status:** Phases 0 to 7 are complete (the MVP). Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover, and Phase 9 (data quality and reliability) is complete; see [ROADMAP.md](ROADMAP.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
 
 - **Twelve Data:** US stocks, ETFs, forex, spot gold.
 - **CoinGecko:** crypto prices and market data, averaged across exchanges.
@@ -221,6 +221,7 @@ Base path: `/api/v1`. Interactive documentation: <http://localhost:8000/docs> (S
 | GET | `/providers` | Providers, their rate limits and health |
 | GET | `/collectors/status` | Collection jobs: schedule, last run, outcome, next run |
 | GET | `/collectors/executions` | Run history, newest first. Filters: `job`, `status` |
+| GET | `/quality/issues` | Data-quality issues, most recently seen first. Filters: `kind`, `status`, `provider`, `symbol`, `start`, `end` (last seen; default the last 7 days) |
 | POST | `/collectors/{job}/run` | Run a job now (requires `X-API-Key`; see [Collecting Data](#collecting-data)) |
 
 Conventions:
@@ -256,7 +257,8 @@ Open <http://localhost:3000> and sign in with `GRAFANA_ADMIN_USER` and `GRAFANA_
 | Interest Rates | €STR, ECB key rates, SOFR, EFFR, OBFR and the federal funds rate |
 | Commodities | Spot gold price and daily candles |
 | Economic Indicators | Latest values, history and revisions of each indicator |
-| Collector Monitoring | Provider health, jobs, runs per hour, failures |
+| Collector Monitoring | Provider health, jobs, runs per hour, run durations, collection latency, failures |
+| Data Quality | Open issues, gaps and their backfill, conflicts and spikes, provider comparison, suspect values, collection latency |
 
 Every dashboard has:
 
@@ -311,10 +313,13 @@ Application configuration is provided through environment variables, read from `
 | `GRAFANA_ADMIN_PASSWORD` | `change_me` | Grafana administrator password (required) |
 | `GRAFANA_DB_USER` | `grafana_reader` | Read-only database role Grafana connects with |
 | `GRAFANA_DB_PASSWORD` | `change_me_reader` | Its password (required). Changing it updates the role on the next start. |
+| `COMPRESS_AFTER_DAYS` | `30` | Compress market observations and candles older than this many days. Empty: never. |
+| `OBSERVATION_RETENTION_DAYS` | (empty) | Drop market observations older than this many days, for good. Empty keeps everything. |
+| `CANDLE_RETENTION_DAYS` | (empty) | The same for candles. Economic observations are never dropped. |
 
 Database and Grafana credentials are applied when their volumes are first created; changing them later in `.env` does not alter an existing volume.
 
-Further provider API keys and the administrator key (`ADMIN_API_KEY`) will be added to `.env.example` in the phases that introduce them. A provider's timeouts, retries, rate limits and the name of its key variable are set in `backend/seed.toml`; adding a provider is described in [docs/providers/README.md](docs/providers/README.md). Credentials are read from the environment only and are never stored in the database.
+The storage settings are applied by the `migrate` service at every start (`python -m app.cli storage-policies`), so changing one and restarting is enough. A provider's timeouts, retries, rate limits and the name of its key variable are set in `backend/seed.toml`; adding a provider is described in [docs/providers/README.md](docs/providers/README.md). Credentials are read from the environment only and are never stored in the database.
 
 Never commit API credentials or production secrets.
 
@@ -363,6 +368,8 @@ Collection runs automatically. The backend container runs a scheduler that start
 | `binance_daily_candles` | Daily at 00:10, with retry |
 | `nyfed_quotes` | Daily at 20:30, after the New York Fed's same-day revision window, with retry |
 | `us_treasury_quotes` | Daily at 23:30, with retry |
+| `data_quality_check` | Every 15 minutes; reads the database only (see [Data Quality](#data-quality)) |
+| `twelve_data_backfill`, `coingecko_backfill`, `binance_backfill`, `ecb_backfill`, `nyfed_backfill`, `us_treasury_backfill` | Daily between 03:10 and 04:00, a few requests each |
 | `fred_daily_quotes`, `fred_indicators` | Disabled until `FRED_API_KEY` is set and FRED's terms are settled |
 
 When the seed file is applied, the jobs are checked against every provider's rate limits. A configuration that would exceed one stops the startup, and the `migrate` log names the provider and the jobs.
@@ -403,13 +410,43 @@ docker compose run --rm migrate python -m app.cli collect indicators fred
 
 Each run uses provider credits:
 
-- **Twelve Data:** 15 for quotes or candles of the default instruments. The free plan allows 8 a minute, so a run takes about two minutes.
+- **Twelve Data:** 20 for quotes or candles of the default instruments. The free plan allows 8 a minute, so a run takes about two minutes.
 - **CoinGecko:** 2 for current values and dominance, and 10 for history, one per coin. History is limited to the past 365 days and stops 2 days short of today, because CoinGecko may still revise recent values.
 
 - **ECB:** no key and no published limit. A collection takes a few requests.
 - **FRED:** one request per series, within 120 a minute.
 
 CoinGecko's free plans require attribution ("Powered by CoinGecko") wherever its data is displayed, ECB data must cite the ECB as its source, and applications using the FRED API must show FRED's notice. FRED's terms also prohibit archiving its content, which is unresolved; see [docs/providers/fred.md](docs/providers/fred.md). Provider limits and licensing are documented in [docs/providers/](docs/providers/).
+
+## Data Quality
+
+The `data_quality_check` job looks for problems in the stored data every 15 minutes and records each one as an issue (PRD FR-012). It never changes or deletes a value.
+
+| Issue | Meaning |
+| --- | --- |
+| `stale` | A series has nothing newer than its job allows: by default three intervals, or four days for a daily job. Market-hours series are checked only while their session runs. Closes when a newer value arrives. |
+| `gap` | Two consecutive values are further apart than the job allows (`gap_after_minutes`; candles by default their interval), within the last 30 days of what the job collected. Closed by backfill. |
+| `conflict` | A provider re-sent a stored value differently. The stored value is kept and marked suspect. |
+| `spike` | A price moved more than 20 %, or a rate or yield more than 1 point, from the value before. The value is marked suspect. |
+| `discrepancy` | Two providers' values of the same instrument at the same time differ by more than 2 % (or 0.1 points). Closes when they agree again. |
+
+- **Backfill:** each provider's backfill job re-fetches a few gaps a day from the provider's history, within its rate budget. A gap is then `filled`, `no_data` (the provider has nothing for it, such as an exchange holiday) or `unrecoverable` (the provider has no history for that data, as for Binance prices).
+- **Thresholds:** set per job in `backend/seed.toml` (`stale_after_minutes`, `gap_after_minutes`, `business_days_only`) and on the quality job (`spike_percent`, `spike_points`, `discrepancy_percent`, `discrepancy_points`).
+- **Where to see them:** the Data Quality dashboard, `GET /api/v1/quality/issues`, and the `quality_status` of each observation in the API.
+
+Run the checks now:
+
+```bash
+docker compose run --rm migrate python -m app.cli run data_quality_check
+```
+
+## Restart and Recovery
+
+- **Stored data** lives in the `db` volume and survives restarts and rebuilds. Only `docker compose down -v` deletes it.
+- **Interrupted runs:** a job run cut off by a restart is left as `running`. At start-up the backend closes it as `failed`, with the error "interrupted: the process stopped before the run finished". The job's lock goes with the dead process's database connection, so the next run starts normally.
+- **Schedules** come from the database at start-up, and every job resumes at its next scheduled time. Runs missed while the backend was down are not repeated; anything they would have collected that is still available shows up as a gap, which backfill re-fetches.
+- **Rate limits** are counted in memory and start from zero after a restart. A provider that answers HTTP 429 pauses its requests until its allowance returns, and the startup budget check keeps planned daily and monthly use within quota.
+- **Provider outages** are contained: the failing provider's runs are recorded as failed, its health goes from `degraded` to `down` after three failures in a row, and its series become stale. Other providers carry on. When it recovers, its health returns to `healthy`, the stale issues close, and the missed range is backfilled where the provider keeps history.
 
 ## Development Roadmap
 

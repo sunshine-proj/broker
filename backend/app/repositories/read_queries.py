@@ -19,6 +19,7 @@ from app.models import (
     OHLCV,
     CollectionJob,
     CollectorExecution,
+    DataQualityIssue,
     EconomicIndicator,
     EconomicObservation,
     Exchange,
@@ -33,6 +34,8 @@ from app.models.enums import (
     CandleInterval,
     CollectorStatus,
     IndicatorFrequency,
+    IssueKind,
+    IssueStatus,
     ObservationType,
     QuoteKind,
 )
@@ -50,6 +53,7 @@ _economic = EconomicObservation.__table__
 _health = ProviderHealth.__table__
 _job = CollectionJob.__table__
 _execution = CollectorExecution.__table__
+_issue = DataQualityIssue.__table__
 
 
 class SqlReadRepository:
@@ -397,7 +401,8 @@ class SqlReadRepository:
     ) -> list[Row]:
         statement = (
             sa.select(_job, _provider.c.name.label("provider"))
-            .join(_provider, _provider.c.id == _job.c.provider_id)
+            # A quality job has no provider.
+            .outerjoin(_provider, _provider.c.id == _job.c.provider_id)
             .order_by(_job.c.name)
             .limit(limit)
             .offset(offset)
@@ -429,6 +434,64 @@ class SqlReadRepository:
             statement = statement.where(_execution.c.job_name == job)
         if status is not None:
             statement = statement.where(_execution.c.status == status)
+        return await self._rows(statement)
+
+    # --- Data quality ----------------------------------------------------------------------
+
+    async def quality_issues(
+        self,
+        *,
+        kind: IssueKind | None,
+        status: IssueStatus | None,
+        provider: str | None,
+        symbol: str | None,
+        start: datetime,
+        end: datetime,
+        limit: int,
+        offset: int,
+    ) -> list[Row]:
+        """Issues last seen within start <= time < end, most recently seen first."""
+        other = _provider.alias("other")
+        statement = (
+            sa.select(
+                _issue.c.id,
+                _issue.c.kind,
+                _issue.c.status,
+                _issue.c.resolution,
+                _instrument.c.symbol,
+                _instrument.c.asset_type,
+                _provider.c.name.label("provider"),
+                other.c.name.label("other_provider"),
+                _issue.c.observation_type,
+                _issue.c.interval,
+                _issue.c.range_start,
+                _issue.c.range_end,
+                _issue.c.message,
+                _issue.c.details,
+                _issue.c.detected_at,
+                _issue.c.last_seen_at,
+                _issue.c.closed_at,
+            )
+            .select_from(
+                _issue.outerjoin(_instrument, _instrument.c.id == _issue.c.instrument_id)
+                .outerjoin(_provider, _provider.c.id == _issue.c.provider_id)
+                .outerjoin(other, other.c.id == _issue.c.other_provider_id)
+            )
+            .where(_issue.c.last_seen_at >= start, _issue.c.last_seen_at < end)
+            .order_by(_issue.c.last_seen_at.desc(), _issue.c.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        if kind is not None:
+            statement = statement.where(_issue.c.kind == kind)
+        if status is not None:
+            statement = statement.where(_issue.c.status == status)
+        if provider is not None:
+            statement = statement.where(
+                sa.or_(_provider.c.name == provider, other.c.name == provider)
+            )
+        if symbol is not None:
+            statement = statement.where(_instrument.c.symbol == symbol)
         return await self._rows(statement)
 
 

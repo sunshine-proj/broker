@@ -269,7 +269,10 @@ def test_shipped_seed_fits_every_budget(settings: Settings) -> None:
 def test_shipped_seed_jobs_cover_every_provider(settings: Settings) -> None:
     config = load_seed_file(settings.seed_file)
 
-    assert {j.provider for j in config.jobs} == {p.name for p in config.providers}
+    providers = {j.provider for j in config.jobs if j.kind is not JobKind.QUALITY}
+    assert providers == {p.name for p in config.providers}
+    # One quality job checks every provider's data.
+    assert [j.provider for j in config.jobs if j.kind is JobKind.QUALITY] == [None]
     fred = [j for j in config.jobs if j.provider == "fred"]
     assert fred and not any(j.enabled for j in fred)
 

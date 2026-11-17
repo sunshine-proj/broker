@@ -18,6 +18,9 @@ from app.models.enums import (
     ExecutionTrigger,
     Freshness,
     IndicatorFrequency,
+    IssueKind,
+    IssueResolution,
+    IssueStatus,
     JobKind,
     ObservationType,
     ProviderHealthStatus,
@@ -165,7 +168,8 @@ class ProviderOut(_Response):
 
 class JobStatusOut(_Response):
     name: str
-    provider: str
+    # None for a quality job, which checks every provider's data.
+    provider: str | None
     kind: JobKind
     enabled: bool
     interval_minutes: int | None
@@ -190,3 +194,27 @@ class ExecutionOut(_Response):
     finished_at: UtcTimestamp | None
     records_written: int
     error: str | None
+
+
+class QualityIssueOut(_Response):
+    """A data-quality issue (PRD FR-012)."""
+
+    id: uuid.UUID
+    kind: IssueKind
+    status: IssueStatus
+    resolution: IssueResolution | None
+    # The instrument, providers and series concerned, where the issue has them.
+    symbol: str | None
+    asset_type: AssetType | None
+    provider: str | None
+    other_provider: str | None
+    observation_type: ObservationType | None
+    interval: CandleInterval | None
+    # The period affected: a gap's missing range, a stale series' last value.
+    range_start: UtcTimestamp | None
+    range_end: UtcTimestamp | None
+    message: str
+    details: dict[str, Any]
+    detected_at: UtcTimestamp
+    last_seen_at: UtcTimestamp
+    closed_at: UtcTimestamp | None

@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 import app.providers  # noqa: F401  (registers the adapters)
 from app.models.enums import JobKind
+from app.providers.base import Provider
 from app.providers.factory import ADAPTERS
 from app.schemas.provider_config import ProviderSettings, RatePeriod
 from app.schemas.seed import SeedExchange, SeedFile, SeedJob
@@ -151,9 +152,7 @@ def plan_usage(seed: SeedFile) -> list[LimitUsage]:
         job_usages = tuple(
             JobUsage(
                 job=job.name,
-                credits_per_run=adapter.planned_credits(
-                    job.kind, job_symbols(seed, job), job.observation_types
-                ),
+                credits_per_run=_credits_per_run(adapter, seed, job),
                 runs_per_day=runs_per_day(seed, job),
             )
             for job in jobs
@@ -170,6 +169,15 @@ def plan_usage(seed: SeedFile) -> list[LimitUsage]:
             for limit in _limits(provider.configuration)
         ]
     return usages
+
+
+def _credits_per_run(adapter: type[Provider], seed: SeedFile, job: SeedJob) -> int:
+    if job.kind is JobKind.BACKFILL:
+        # Each request re-fetches one series; count it as a candle request,
+        # the dearest kind for every adapter.
+        assert job.max_requests is not None
+        return job.max_requests * max(1, adapter.planned_credits(JobKind.CANDLES, ["-"]))
+    return adapter.planned_credits(job.kind, job_symbols(seed, job), job.observation_types)
 
 
 def _limits(settings: ProviderSettings) -> Sequence:

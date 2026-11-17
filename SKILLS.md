@@ -63,6 +63,8 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 - A migration spells out its own enumeration values and never imports them from the application.
 - Bound every time-series query by a time range and an instrument or indicator.
 - Add an index together with the query that needs it.
+- Never update or delete a stored observation, candle or economic value. The data-quality checks may set `market_observation.quality_status`; nothing else changes a stored row.
+- Hypertables are compressed after `COMPRESS_AFTER_DAYS`. Inserts and the `quality_status` update work on compressed chunks; keep other writes to recent data.
 
 ## 6. API
 
@@ -80,6 +82,8 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 - Run a single scheduler instance (`SCHEDULER_ENABLED=true` in one process only). If the backend is ever scaled to several replicas, only one may run the scheduler.
 - Add or change jobs in the seed file, never in the database; keep each provider within its rate budget, which the seed check enforces.
 - Tests of anything that runs jobs commit for real and must clean up the tables they use.
+- Report data problems as data-quality issues (PRD FR-012), never by correcting data. Give each issue a fingerprint that identifies the problem, so detecting it again updates the same issue.
+- A new collecting job states its quality thresholds where the defaults do not fit (`stale_after_minutes`, `gap_after_minutes`, `business_days_only`), and a provider with collecting jobs gets a backfill job within its budget.
 
 ## 8. Grafana
 

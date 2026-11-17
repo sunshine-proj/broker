@@ -39,10 +39,13 @@ from app.repositories.economic_data import SqlEconomicDataRepository
 from app.repositories.instruments import SqlInstrumentRepository, TrackedSymbol
 from app.repositories.market_data import SqlMarketDataRepository
 from app.repositories.provider_health import SqlProviderHealthRepository
+from app.repositories.quality import SqlQualityRepository
+from app.services.backfill import BackfillService
 from app.services.budget import is_open_now
 from app.services.collection import CollectionOutcome, CollectionService
-from app.services.ingestion import IngestionService
+from app.services.ingestion import IngestionResult, IngestionService
 from app.services.provider_health import ProviderHealthService
+from app.services.quality import QualityService, QualitySettings
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +105,12 @@ class JobRunner:
                 raise JobNotFoundError(job_name)
             if not job.enabled:
                 raise JobDisabledError(job_name)
-            provider = await session.get(ProviderRow, job.provider_id)
-            assert provider is not None
+            # Quality jobs have no provider.
+            provider = (
+                await session.get(ProviderRow, job.provider_id)
+                if job.provider_id is not None
+                else None
+            )
 
         connection = await self._engine.connect()
         try:
@@ -123,7 +130,10 @@ class JobRunner:
             now = self._clock()
             async with self._sessions() as session:
                 execution_id = await SqlCollectorExecutionRepository(session).start(
-                    job_name=job_name, provider_id=provider.id, trigger=trigger, at=now
+                    job_name=job_name,
+                    provider_id=provider.id if provider else None,
+                    trigger=trigger,
+                    at=now,
                 )
                 await SqlCollectionJobRepository(session).record_start(job_name, now)
                 await session.commit()
@@ -157,7 +167,7 @@ class JobRunner:
         Market-hours filtering applies to scheduled and retry runs only; a
         manual run collects every instrument of the job.
         """
-        if job.kind is JobKind.INDICATORS:
+        if job.kind in (JobKind.INDICATORS, JobKind.QUALITY, JobKind.BACKFILL):
             return None
         asset_types = job.settings.get("asset_types")
         async with self._sessions() as session:
@@ -171,8 +181,11 @@ class JobRunner:
         return [t.provider_symbol for t in tracked]
 
     async def _collect(
-        self, job: CollectionJob, provider: ProviderRow, symbols: list[str] | None
+        self, job: CollectionJob, provider: ProviderRow | None, symbols: list[str] | None
     ) -> CollectionOutcome:
+        if job.kind is JobKind.QUALITY:
+            return await self._check_quality(job)
+        assert provider is not None
         settings = job.settings
         end = self._clock()
         start = end - timedelta(days=int(settings.get("lookback_days", 0)))
@@ -187,6 +200,7 @@ class JobRunner:
                     instruments=instruments,
                     market_data=SqlMarketDataRepository(session),
                     economic_data=economic_data,
+                    quality=SqlQualityRepository(session),
                     clock=self._clock,
                 ),
                 health=ProviderHealthService(
@@ -210,12 +224,38 @@ class JobRunner:
                 )
             elif job.kind is JobKind.HISTORY:
                 outcome = await service.collect_quote_history(provider, start, end, symbols=symbols)
+            elif job.kind is JobKind.BACKFILL:
+                outcome = await BackfillService(
+                    collection=service,
+                    instruments=instruments,
+                    quality=SqlQualityRepository(session),
+                    clock=self._clock,
+                ).run(provider, int(settings["max_requests"]))
             else:
                 outcome = await service.collect_indicators(provider, start, end)
             # Committed even after a provider failure: the data that did arrive,
             # and the provider's health record, are kept.
             await session.commit()
         return outcome
+
+    async def _check_quality(self, job: CollectionJob) -> CollectionOutcome:
+        """Run the data-quality checks over every enabled job's data."""
+        now = self._clock()
+        # Values stored since the previous run are checked for spikes.
+        since = job.last_started_at or now - timedelta(days=1)
+        async with self._sessions() as session:
+            jobs = await SqlCollectionJobRepository(session).list(enabled=True)
+            providers = {
+                row.id: row.name
+                for row in (await session.execute(sa.select(ProviderRow))).scalars()
+            }
+            report = await QualityService(
+                SqlQualityRepository(session), SqlMarketDataRepository(session), clock=self._clock
+            ).check(jobs, providers, QualitySettings.from_job(job.settings), since)
+            await session.commit()
+        return CollectionOutcome(
+            "quality", 0, True, IngestionResult(received=report.opened, written=report.opened)
+        )
 
 
 class RunHandle:
@@ -226,7 +266,7 @@ class RunHandle:
         runner: JobRunner,
         connection: AsyncConnection,
         job: CollectionJob,
-        provider: ProviderRow,
+        provider: ProviderRow | None,
         symbols: list[str] | None,
         execution_id: uuid.UUID,
         trigger: ExecutionTrigger,

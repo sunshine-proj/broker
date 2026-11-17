@@ -36,17 +36,25 @@ services:
     networks:
       - internal
 
-  # Applies database migrations and the seed file and sets up Grafana's read-only
-  # database role, then exits. The backend and Grafana wait for it.
+  # Applies database migrations, the seed file and the storage policies, and sets
+  # up Grafana's read-only database role, then exits. The backend and Grafana
+  # wait for it.
   migrate:
     build: ./backend
     command:
       - sh
       - -c
-      - alembic upgrade head && python -m app.cli seed && python -m app.cli reader-role
+      - >-
+        alembic upgrade head && python -m app.cli seed
+        && python -m app.cli storage-policies && python -m app.cli reader-role
     restart: "no"
     environment:
       <<: *backend-environment
+      # Compression and retention of market observations and candles, in days.
+      # Empty retention keeps everything.
+      COMPRESS_AFTER_DAYS: ${COMPRESS_AFTER_DAYS-30}
+      OBSERVATION_RETENTION_DAYS: ${OBSERVATION_RETENTION_DAYS:-}
+      CANDLE_RETENTION_DAYS: ${CANDLE_RETENTION_DAYS:-}
       GRAFANA_DB_USER: ${GRAFANA_DB_USER:-grafana_reader}
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
     depends_on:

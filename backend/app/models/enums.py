@@ -79,6 +79,36 @@ class JobKind(StrEnum):
     HISTORY = "history"
     # Economic indicator values over a recent window.
     INDICATORS = "indicators"
+    # Data-quality checks over every provider's data (the only kind without a provider).
+    QUALITY = "quality"
+    # Re-fetch ranges the quality checks found missing.
+    BACKFILL = "backfill"
+
+
+class IssueKind(StrEnum):
+    STALE = "stale"
+    GAP = "gap"
+    CONFLICT = "conflict"
+    SPIKE = "spike"
+    DISCREPANCY = "discrepancy"
+
+
+class IssueStatus(StrEnum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class IssueResolution(StrEnum):
+    # The condition no longer holds (stale, discrepancy).
+    CLEARED = "cleared"
+    # Backfill stored values in the gap.
+    FILLED = "filled"
+    # Backfill found nothing at the provider for the gap.
+    NO_DATA = "no_data"
+    # The provider cannot re-fetch the gap, or failed to repeatedly.
+    UNRECOVERABLE = "unrecoverable"
+    # An event recorded for information (conflict, spike).
+    RECORDED = "recorded"
 
 
 class ExecutionTrigger(StrEnum):

@@ -353,6 +353,46 @@ Phase 8 (Binance, the New York Fed, commodities, more instruments) is next. It's
 
 
 
+Phase 9 is done: all 11 roadmap tasks are ticked. 543 tests pass, Ruff is clean, and the migrations, seed and storage policies are running on the live stack. Every query on the 11 dashboards runs through Grafana; I haven't looked at the new Data Quality dashboard in a browser.
+
+What it does
+Data-quality checks: a new job runs every 15 minutes, reads only the database, and records each problem as an issue:
+
+Issue	Detected when
+stale	A series has nothing newer than its job allows
+gap	Two consecutive values are too far apart
+conflict	A provider re-sends a stored value with a different number
+spike	A price moves more than 20 %, or a rate or yield more than 1 point
+discrepancy	Two providers disagree on the same instrument at the same time
+Thresholds are set per job in seed.toml, and markets that close at weekends are handled. Rates that are only recorded when they change (the ECB key rates) are skipped.
+
+Suspect values: conflicts and spikes mark the observation suspect. That is the only change ever made to a stored row; values are never corrected.
+
+Backfill: each provider gets a daily job that re-fetches a few open gaps from the provider's history, counted in its budget (Twelve Data is now at 711 of 800 a day). It closes each gap as filled, no_data (a holiday, for example) or unrecoverable. Binance prices land in the last group, because Binance keeps no price history.
+
+Where to see it: a new Data Quality dashboard, a read-only GET /api/v1/quality/issues endpoint, and panels on Collector Monitoring for collection latency and run duration.
+
+Compression and retention: compression is on, after 30 days by default (COMPRESS_AFTER_DAYS). It has already compressed 56 of 61 chunks live, though the saving is small at the current data volume. Retention is available through two settings and off by default.
+
+Restart and outage: both are tested and documented in the README's "Restart and Recovery" section. Restarting the live backend closed one interrupted run as failed and every job resumed on schedule.
+
+Two flaws the live data exposed, both fixed
+False gaps: the first live check reported 5,824 gaps. They came from history imported at CoinGecko's hourly granularity, being compared with 5-minute polling. Gaps are now checked only in data collected since the job existed, with at most 20 per series. The live check then found none.
+Comparison too narrow: the provider comparison rarely compared anything, because the ECB's fixing is dated midnight of its reference day. It now compares the older of the two latest values with the other provider's value at that time. EUR/USD rows will appear after today's ECB fixing, which is collected at 16:00 UTC.
+Changes to your setup
+Live database: I deleted the 5,826 bogus issues and re-ran migrations 0006 and 0007 on the live database. Both are derived data that a fresh check rebuilds.
+Settings: .env and .env.example gain COMPRESS_AFTER_DAYS, OBSERVATION_RETENTION_DAYS and CANDLE_RETENTION_DAYS.
+Limitations
+A series that has never had a value isn't reported as stale.
+Exchange holidays first appear as gaps, until backfill closes them as no_data.
+Indicators aren't checked for staleness.
+
+
+
+
+===========================================
+
+
 
 
 

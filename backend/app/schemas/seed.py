@@ -1,6 +1,7 @@
 """Schema of the seed file (see backend/seed.toml)."""
 
 from datetime import time
+from decimal import Decimal
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -74,9 +75,15 @@ class SeedIndicator(_SeedModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+_COLLECTING = frozenset({JobKind.QUOTES, JobKind.CANDLES, JobKind.HISTORY})
+_QUALITY_FIELDS = ("spike_percent", "spike_points", "discrepancy_percent", "discrepancy_points")
+_SERIES_FIELDS = ("stale_after_minutes", "gap_after_minutes")
+
+
 class SeedJob(_SeedModel):
     name: str = Field(pattern=r"^[a-z0-9_]+$", max_length=128)
-    provider: str
+    # Every job but a quality job belongs to one provider.
+    provider: str | None = None
     kind: JobKind
     # Exactly one schedule: every N minutes, aligned to the clock, or daily at a UTC time.
     interval_minutes: int | None = Field(default=None, gt=0)
@@ -90,9 +97,30 @@ class SeedJob(_SeedModel):
     # Limit a quotes job to these observation types.
     observation_types: list[ObservationType] | None = None
     candle_interval: CandleInterval | None = None
-    # How far back candles, history and indicators jobs fetch.
+    # How far back candles, history and indicators jobs fetch, and how far back
+    # a quality job looks for gaps.
     lookback_days: int | None = Field(default=None, gt=0)
     enabled: bool = True
+
+    # Data quality of what a quotes, candles or history job collects (PRD FR-012).
+    # A series is stale with no value newer than this; default three intervals,
+    # or four days for a daily job.
+    stale_after_minutes: int | None = Field(default=None, gt=0)
+    # Consecutive values further apart than this are a gap. No default for
+    # quotes and history; the candle interval for candles.
+    gap_after_minutes: int | None = Field(default=None, gt=0)
+    # Count only Monday to Friday (UTC) time, for markets closed at weekends.
+    business_days_only: bool = False
+
+    # Backfill: most requests per run.
+    max_requests: int | None = Field(default=None, gt=0)
+
+    # Quality: thresholds. Percent applies to values in money, points to values
+    # in percent (rates, yields). Defaults: 20 %, 1 point, 2 %, 0.1 points.
+    spike_percent: Decimal | None = Field(default=None, gt=0)
+    spike_points: Decimal | None = Field(default=None, gt=0)
+    discrepancy_percent: Decimal | None = Field(default=None, gt=0)
+    discrepancy_points: Decimal | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -111,21 +139,62 @@ class SeedJob(_SeedModel):
             problems.append("observation_types applies to quotes jobs only")
         if self.kind is JobKind.QUOTES and self.lookback_days is not None:
             problems.append("lookback_days does not apply to quotes jobs")
-        if self.kind is not JobKind.QUOTES and self.lookback_days is None:
+        if self.kind is JobKind.BACKFILL and self.lookback_days is not None:
+            problems.append("lookback_days does not apply to backfill jobs")
+        if self.kind not in (JobKind.QUOTES, JobKind.BACKFILL) and self.lookback_days is None:
             problems.append(f"a {self.kind.value} job needs lookback_days")
-        if self.kind is JobKind.INDICATORS and (self.asset_types or self.market_hours_only):
-            problems.append("asset_types and market_hours_only do not apply to indicators jobs")
+        if self.kind in (JobKind.INDICATORS, JobKind.QUALITY, JobKind.BACKFILL) and (
+            self.asset_types or self.market_hours_only
+        ):
+            problems.append(
+                f"asset_types and market_hours_only do not apply to {self.kind.value} jobs"
+            )
+        if (self.kind is JobKind.QUALITY) != (self.provider is None):
+            problems.append(
+                "a quality job has no provider"
+                if self.kind is JobKind.QUALITY
+                else "the job needs a provider"
+            )
+        if (self.kind is JobKind.BACKFILL) != (self.max_requests is not None):
+            problems.append(
+                "a backfill job needs max_requests"
+                if self.kind is JobKind.BACKFILL
+                else "max_requests applies to backfill jobs only"
+            )
+        if self.kind is not JobKind.QUALITY:
+            problems += [
+                f"{field} applies to quality jobs only"
+                for field in _QUALITY_FIELDS
+                if getattr(self, field) is not None
+            ]
+        if self.kind not in _COLLECTING:
+            problems += [
+                f"{field} applies to quotes, candles and history jobs only"
+                for field in (*_SERIES_FIELDS, "business_days_only")
+                if getattr(self, field)
+            ]
         if problems:
             raise ValueError(f"job {self.name}: " + "; ".join(problems))
         return self
 
     def settings(self) -> dict[str, Any]:
-        """The filters and windows stored with the job, as JSON values."""
-        return self.model_dump(
+        """The filters, windows and data-quality settings stored with the job, as JSON values."""
+        settings = self.model_dump(
             mode="json",
-            include={"asset_types", "observation_types", "candle_interval", "lookback_days"},
+            include={
+                "asset_types",
+                "observation_types",
+                "candle_interval",
+                "lookback_days",
+                "max_requests",
+                *_SERIES_FIELDS,
+                *_QUALITY_FIELDS,
+            },
             exclude_none=True,
         )
+        if self.business_days_only:
+            settings["business_days_only"] = True
+        return settings
 
 
 def _aligned_interval(minutes: int) -> bool:
@@ -183,7 +252,7 @@ class SeedFile(_SeedModel):
                     f"indicator {indicator.code}: unknown provider {indicator.provider}"
                 )
         for job in self.jobs:
-            if job.provider not in provider_names:
+            if job.provider is not None and job.provider not in provider_names:
                 problems.append(f"job {job.name}: unknown provider {job.provider}")
 
         if problems:

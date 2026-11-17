@@ -1,0 +1,629 @@
+{
+  "uid": "data-quality",
+  "title": "Data Quality",
+  "description": "Stale series, gaps and their backfill, conflicting re-collections, price spikes, provider discrepancies and collection latency. Stored values are never corrected.",
+  "tags": [
+    "market-data"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "market-data"
+      ],
+      "asDropdown": true,
+      "title": "Market Data dashboards",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "kind",
+        "label": "Issue kinds",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT unnest(ARRAY['stale', 'gap', 'conflict', 'spike', 'discrepancy'])\n",
+        "definition": "SELECT unnest(ARRAY['stale', 'gap', 'conflict', 'spike', 'discrepancy'])\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Data sources",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Stock, ETF, intraday currency and gold data: [Twelve Data](https://twelvedata.com).  \n**Powered by [CoinGecko](https://www.coingecko.com)**  \nExchange prices: [Binance](https://www.binance.com) spot market.  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \nSOFR, EFFR and OBFR are subject to the [Terms of Use](https://www.newyorkfed.org/privacy/termsofuse.html) posted at newyorkfed.org. The New York Fed is not responsible for publication of these rates by this platform, does not sanction or endorse any particular republication, and has no liability for your use. SOFR is calculated using data provided under a license granted to the New York Fed by DTCC Solutions LLC.  \nSource: [U.S. Department of the Treasury](https://home.treasury.gov), Daily Treasury Par Yield Curve Rates.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Open issues",
+      "description": "Problems that still hold. Gaps stay open until backfill has run.",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FILTER (WHERE kind = 'stale') AS \"Stale\",\n       count(*) FILTER (WHERE kind = 'gap') AS \"Gaps\",\n       count(*) FILTER (WHERE kind = 'discrepancy') AS \"Discrepancies\"\n  FROM v_quality_issue\n WHERE status = 'open'\n"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "table",
+      "title": "Open issues",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT kind AS \"Kind\",\n       symbol AS \"Symbol\",\n       provider AS \"Provider\",\n       other_provider AS \"Compared with\",\n       message AS \"Problem\",\n       detected_at AS \"Detected\",\n       last_seen_at AS \"Last seen\"\n  FROM v_quality_issue\n WHERE status = 'open' AND kind IN (${kind:sqlstring})\n ORDER BY detected_at DESC\n LIMIT 500\n"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Issues found per day",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time_bucket('1 day', detected_at) AS \"time\", kind AS metric,\n       count(*) AS value\n  FROM v_quality_issue\n WHERE $__timeFilter(detected_at) AND kind IN (${kind:sqlstring})\n GROUP BY 1, 2\n ORDER BY 1\n"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Gaps and backfill",
+      "description": "Backfill re-fetches gaps once a day. no_data: the provider had nothing (a holiday, for example). unrecoverable: it cannot re-fetch that data.",
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "open": {
+                  "color": "orange",
+                  "index": 0
+                },
+                "filled": {
+                  "color": "green",
+                  "index": 1
+                },
+                "cleared": {
+                  "color": "green",
+                  "index": 2
+                },
+                "no_data": {
+                  "color": "text",
+                  "index": 3
+                },
+                "recorded": {
+                  "color": "text",
+                  "index": 4
+                },
+                "unrecoverable": {
+                  "color": "red",
+                  "index": 5
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outcome"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       provider AS \"Provider\",\n       coalesce(interval, observation_type) AS \"Data\",\n       range_start AS \"Missing from\",\n       range_end AS \"Missing to\",\n       coalesce(resolution, status) AS \"Outcome\",\n       details->>'values_found' AS \"Values filled\",\n       details->>'reason' AS \"Reason\"\n  FROM v_quality_issue\n WHERE kind = 'gap' AND $__timeFilter(last_seen_at)\n ORDER BY range_start DESC\n LIMIT 500\n"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "table",
+      "title": "Conflicts and spikes",
+      "description": "Conflict: the provider re-sent a stored value differently; the stored value was kept and marked suspect. Spike: an implausible move, marked suspect.",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT detected_at AS \"When\",\n       kind AS \"Kind\",\n       symbol AS \"Symbol\",\n       provider AS \"Provider\",\n       coalesce(interval, observation_type) AS \"Data\",\n       range_end AS \"Value at\",\n       message AS \"What happened\",\n       details::text AS \"Values\"\n  FROM v_quality_issue\n WHERE kind IN ('conflict', 'spike') AND kind IN (${kind:sqlstring})\n   AND $__timeFilter(detected_at)\n ORDER BY detected_at DESC\n LIMIT 500\n"
+        }
+      ],
+      "id": 6
+    },
+    {
+      "type": "table",
+      "title": "Provider comparison",
+      "description": "Latest values of instruments collected from two providers, observed within a day of each other. Reference and market rates differ a little by nature.",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Difference %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 2
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       observation_type AS \"Data\",\n       provider AS \"Provider\",\n       value AS \"Value\",\n       other_provider AS \"Other provider\",\n       other_value AS \"Other value\",\n       difference AS \"Difference\",\n       difference_percent AS \"Difference %\",\n       observed_at AS \"Observed\",\n       other_observed_at AS \"Other observed\"\n  FROM v_provider_discrepancy\n ORDER BY abs(difference_percent) DESC NULLS LAST\n"
+        }
+      ],
+      "id": 7
+    },
+    {
+      "type": "table",
+      "title": "Suspect values",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 10,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS \"Provider\",\n       symbol AS \"Symbol\",\n       observation_type AS \"Data\",\n       count(*) AS \"Suspect values\",\n       max(observed_at) AS \"Latest\"\n  FROM v_observation\n WHERE quality_status = 'suspect' AND $__timeFilter(observed_at)\n GROUP BY provider, symbol, observation_type\n ORDER BY 4 DESC\n"
+        }
+      ],
+      "id": 8
+    },
+    {
+      "type": "table",
+      "title": "Collection latency",
+      "description": "Time from a value's own timestamp to its storage, over the last 24 hours. End-of-day data is published the next business day, so hours are normal there.",
+      "gridPos": {
+        "x": 10,
+        "y": 46,
+        "w": 14,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Median"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "95th percentile"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Longest"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       freshness AS \"Freshness\",\n       observations AS \"Values\",\n       median_seconds AS \"Median\",\n       p95_seconds AS \"95th percentile\",\n       max_seconds AS \"Longest\"\n  FROM v_collection_latency\n ORDER BY provider, asset_type, observation_type\n"
+        }
+      ],
+      "id": 9
+    },
+    {
+      "type": "table",
+      "title": "Data freshness",
+      "description": "Age of the newest value per provider and kind of data.",
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 86400
+                    },
+                    {
+                      "color": "red",
+                      "value": 345600
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       series AS \"Series\",\n       last_observed_at AS \"Latest value at\",\n       last_ingested_at AS \"Collected at\",\n       age_seconds AS \"Age\"\n  FROM v_data_freshness\n WHERE true\n ORDER BY provider, asset_type, observation_type\n"
+        }
+      ],
+      "id": 10
+    }
+  ]
+}

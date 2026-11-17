@@ -364,12 +364,153 @@
       "id": 4
     },
     {
+      "type": "timeseries",
+      "title": "Run duration",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 3,
+            "drawStyle": "points"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at AS \"time\", job AS metric, duration_seconds AS value\n  FROM v_execution\n WHERE $__timeFilter(started_at) AND finished_at IS NOT NULL\n ORDER BY 1\n"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "table",
+      "title": "Collection latency",
+      "description": "Time from a value's own timestamp to its storage, over the last 24 hours. End-of-day data is published the next business day, so hours are normal there.",
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Median"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "95th percentile"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Longest"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       freshness AS \"Freshness\",\n       observations AS \"Values\",\n       median_seconds AS \"Median\",\n       p95_seconds AS \"95th percentile\",\n       max_seconds AS \"Longest\"\n  FROM v_collection_latency\n ORDER BY provider, asset_type, observation_type\n"
+        }
+      ],
+      "id": 6
+    },
+    {
       "type": "table",
       "title": "Failed runs",
       "description": "",
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 31,
         "w": 24,
         "h": 8
       },
@@ -415,7 +556,7 @@
           "rawSql": "SELECT started_at AS \"Started\", job AS \"Job\", trigger AS \"Trigger\",\n       duration_seconds AS \"Duration\", error AS \"Error\"\n  FROM v_execution\n WHERE status = 'failed' AND $__timeFilter(started_at)\n ORDER BY started_at DESC\n LIMIT 100\n"
         }
       ],
-      "id": 5
+      "id": 7
     },
     {
       "type": "table",
@@ -423,7 +564,7 @@
       "description": "Age of the newest value per provider and kind of data.",
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 39,
         "w": 24,
         "h": 6
       },
@@ -496,7 +637,7 @@
           "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       series AS \"Series\",\n       last_observed_at AS \"Latest value at\",\n       last_ingested_at AS \"Collected at\",\n       age_seconds AS \"Age\"\n  FROM v_data_freshness\n WHERE true\n ORDER BY provider, asset_type, observation_type\n"
         }
       ],
-      "id": 6
+      "id": 8
     }
   ]
 }

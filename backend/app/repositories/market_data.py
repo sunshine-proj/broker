@@ -2,7 +2,8 @@
 
 Both are immutable (PRD section 7): a row whose key is already stored is never
 overwritten. If the incoming values differ from the stored ones, the stored row
-is kept and the difference is logged as a data-quality warning.
+is kept, the difference is logged as a data-quality warning and returned to the
+caller, which records it as a data-quality issue.
 """
 
 import logging
@@ -17,8 +18,8 @@ from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import OHLCV, MarketObservation
-from app.models.enums import CandleInterval, ObservationType
-from app.repositories.interfaces import WriteResult
+from app.models.enums import CandleInterval, ObservationType, QualityStatus
+from app.repositories.interfaces import Conflict, WriteResult
 from app.schemas.market_data import MarketObservationIn, OHLCVIn
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,26 @@ class SqlMarketDataRepository:
     async def add_candles(self, candles: Sequence[OHLCVIn]) -> WriteResult:
         rows = [candle.model_dump() for candle in candles]
         return await self._insert_immutable(OHLCV.__table__, rows, _CANDLE_KEY, _CANDLE_VALUES)
+
+    async def mark_suspect(self, keys: Sequence[Mapping[str, Any]]) -> int:
+        """Set quality_status = suspect on the observations with these keys.
+
+        The only change ever made to a stored observation (PRD FR-012).
+        """
+        if not keys:
+            return 0
+        table = MarketObservation.__table__
+        key = sa.tuple_(*(table.c[c] for c in _OBSERVATION_KEY))
+        updated = 0
+        for batch in batched(keys, _BATCH_SIZE):
+            statement = (
+                sa.update(table)
+                .where(key.in_([tuple(k[c] for c in _OBSERVATION_KEY) for k in batch]))
+                .where(table.c.quality_status != QualityStatus.SUSPECT)
+                .values(quality_status=QualityStatus.SUSPECT)
+            )
+            updated += (await self._session.execute(statement)).rowcount
+        return updated
 
     async def get_observations(
         self,
@@ -188,5 +209,15 @@ class SqlMarketDataRepository:
             )
 
         return WriteResult(
-            inserted=len(inserted_keys), unchanged=unchanged, conflicting=len(conflicts)
+            inserted=len(inserted_keys),
+            unchanged=unchanged,
+            conflicting=len(conflicts),
+            conflicts=tuple(
+                Conflict(
+                    key={c: incoming[c] for c in key_columns},
+                    stored=dict(zip(value_columns, stored_values, strict=True)),
+                    incoming={c: incoming[c] for c in value_columns},
+                )
+                for incoming, stored_values in conflicts
+            ),
         )

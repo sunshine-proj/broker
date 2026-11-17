@@ -943,6 +943,230 @@ def indicators() -> dict[str, Any]:
     )
 
 
+def latency_table(**kwargs: Any) -> Panel:
+    return table(
+        "Collection latency",
+        """
+        SELECT provider AS "Provider",
+               asset_type || ' ' || observation_type AS "Data",
+               freshness AS "Freshness",
+               observations AS "Values",
+               median_seconds AS "Median",
+               p95_seconds AS "95th percentile",
+               max_seconds AS "Longest"
+          FROM v_collection_latency
+         ORDER BY provider, asset_type, observation_type
+        """,
+        description=(
+            "Time from a value's own timestamp to its storage, over the last 24 hours. "
+            "End-of-day data is published the next business day, so hours are normal there."
+        ),
+        overrides=[
+            override(name, unit="s", decimals=0)
+            for name in ("Median", "95th percentile", "Longest")
+        ],
+        **kwargs,
+    )
+
+
+def data_quality() -> dict[str, Any]:
+    kinds = "kind IN (${kind:sqlstring})"
+    resolution_colours = [
+        {
+            "type": "value",
+            "options": {
+                "open": {"color": "orange", "index": 0},
+                "filled": {"color": "green", "index": 1},
+                "cleared": {"color": "green", "index": 2},
+                "no_data": {"color": "text", "index": 3},
+                "recorded": {"color": "text", "index": 4},
+                "unrecoverable": {"color": "red", "index": 5},
+            },
+        }
+    ]
+    coloured = {"custom__cellOptions": {"type": "color-text"}}
+    return dashboard(
+        "data-quality",
+        "Data Quality",
+        "Stale series, gaps and their backfill, conflicting re-collections, price spikes, "
+        "provider discrepancies and collection latency. Stored values are never corrected.",
+        [
+            attribution(
+                "twelve_data", "coingecko", "binance", "ecb", "nyfed", "us_treasury", "fred"
+            ),
+            panel(
+                "stat",
+                "Open issues",
+                [
+                    target(
+                        """
+                        SELECT count(*) FILTER (WHERE kind = 'stale') AS "Stale",
+                               count(*) FILTER (WHERE kind = 'gap') AS "Gaps",
+                               count(*) FILTER (WHERE kind = 'discrepancy') AS "Discrepancies"
+                          FROM v_quality_issue
+                         WHERE status = 'open'
+                        """
+                    )
+                ],
+                height=4,
+                description="Problems that still hold. Gaps stay open until backfill has run.",
+                options={
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                    "textMode": "value_and_name",
+                    "colorMode": "value",
+                    "graphMode": "none",
+                },
+                custom=None,
+                overrides=[],
+            ),
+            table(
+                "Open issues",
+                f"""
+                SELECT kind AS "Kind",
+                       symbol AS "Symbol",
+                       provider AS "Provider",
+                       other_provider AS "Compared with",
+                       message AS "Problem",
+                       detected_at AS "Detected",
+                       last_seen_at AS "Last seen"
+                  FROM v_quality_issue
+                 WHERE status = 'open' AND {kinds}
+                 ORDER BY detected_at DESC
+                 LIMIT 500
+                """,
+                height=9,
+            ),
+            timeseries(
+                "Issues found per day",
+                f"""
+                SELECT time_bucket('1 day', detected_at) AS "time", kind AS metric,
+                       count(*) AS value
+                  FROM v_quality_issue
+                 WHERE $__timeFilter(detected_at) AND {kinds}
+                 GROUP BY 1, 2
+                 ORDER BY 1
+                """,
+                bars=True,
+                width=12,
+                height=8,
+            ),
+            table(
+                "Gaps and backfill",
+                """
+                SELECT symbol AS "Symbol",
+                       provider AS "Provider",
+                       coalesce(interval, observation_type) AS "Data",
+                       range_start AS "Missing from",
+                       range_end AS "Missing to",
+                       coalesce(resolution, status) AS "Outcome",
+                       details->>'values_found' AS "Values filled",
+                       details->>'reason' AS "Reason"
+                  FROM v_quality_issue
+                 WHERE kind = 'gap' AND $__timeFilter(last_seen_at)
+                 ORDER BY range_start DESC
+                 LIMIT 500
+                """,
+                width=12,
+                height=8,
+                description=(
+                    "Backfill re-fetches gaps once a day. no_data: the provider had nothing "
+                    "(a holiday, for example). unrecoverable: it cannot re-fetch that data."
+                ),
+                mappings=resolution_colours,
+                overrides=[override("Outcome", **coloured)],
+            ),
+            table(
+                "Conflicts and spikes",
+                f"""
+                SELECT detected_at AS "When",
+                       kind AS "Kind",
+                       symbol AS "Symbol",
+                       provider AS "Provider",
+                       coalesce(interval, observation_type) AS "Data",
+                       range_end AS "Value at",
+                       message AS "What happened",
+                       details::text AS "Values"
+                  FROM v_quality_issue
+                 WHERE kind IN ('conflict', 'spike') AND {kinds}
+                   AND $__timeFilter(detected_at)
+                 ORDER BY detected_at DESC
+                 LIMIT 500
+                """,
+                height=8,
+                description=(
+                    "Conflict: the provider re-sent a stored value differently; the stored value "
+                    "was kept and marked suspect. Spike: an implausible move, marked suspect."
+                ),
+            ),
+            table(
+                "Provider comparison",
+                """
+                SELECT symbol AS "Symbol",
+                       observation_type AS "Data",
+                       provider AS "Provider",
+                       value AS "Value",
+                       other_provider AS "Other provider",
+                       other_value AS "Other value",
+                       difference AS "Difference",
+                       difference_percent AS "Difference %",
+                       observed_at AS "Observed",
+                       other_observed_at AS "Other observed"
+                  FROM v_provider_discrepancy
+                 ORDER BY abs(difference_percent) DESC NULLS LAST
+                """,
+                height=8,
+                description=(
+                    "Latest values of instruments collected from two providers, observed within "
+                    "a day of each other. Reference and market rates differ a little by nature."
+                ),
+                overrides=[
+                    override(
+                        "Difference %",
+                        unit="percent",
+                        decimals=3,
+                        custom__cellOptions={"type": "color-text"},
+                        thresholds=thresholds(("green", None), ("orange", 1), ("red", 2)),
+                    )
+                ],
+            ),
+            table(
+                "Suspect values",
+                """
+                SELECT provider AS "Provider",
+                       symbol AS "Symbol",
+                       observation_type AS "Data",
+                       count(*) AS "Suspect values",
+                       max(observed_at) AS "Latest"
+                  FROM v_observation
+                 WHERE quality_status = 'suspect' AND $__timeFilter(observed_at)
+                 GROUP BY provider, symbol, observation_type
+                 ORDER BY 4 DESC
+                """,
+                width=10,
+                height=7,
+            ),
+            latency_table(width=14, height=7),
+            freshness(
+                "Data freshness",
+                "true",
+                warn=86400,
+                crit=4 * 86400,
+                description="Age of the newest value per provider and kind of data.",
+            ),
+        ],
+        variables=[
+            variable(
+                "kind",
+                "Issue kinds",
+                """
+                SELECT unnest(ARRAY['stale', 'gap', 'conflict', 'spike', 'discrepancy'])
+                """,
+            )
+        ],
+        time_from="now-7d",
+    )
+
+
 def collector_monitoring() -> dict[str, Any]:
     status_colours = [
         {
@@ -1024,6 +1248,21 @@ def collector_monitoring() -> dict[str, Any]:
                 width=12,
                 height=8,
             ),
+            timeseries(
+                "Run duration",
+                """
+                SELECT started_at AS "time", job AS metric, duration_seconds AS value
+                  FROM v_execution
+                 WHERE $__timeFilter(started_at) AND finished_at IS NOT NULL
+                 ORDER BY 1
+                """,
+                width=12,
+                height=8,
+                unit="s",
+                custom={"lineWidth": 1, "fillOpacity": 0, "showPoints": "always", "pointSize": 3,
+                        "drawStyle": "points"},
+            ),
+            latency_table(width=12, height=8),
             table(
                 "Failed runs",
                 """
@@ -1060,6 +1299,7 @@ def all_dashboards() -> list[dict[str, Any]]:
         bond_yields(),
         interest_rates(),
         commodities(),
+        data_quality(),
         indicators(),
         collector_monitoring(),
     ]

@@ -137,7 +137,7 @@ async def apply_seed(
     for job in seed.jobs:
         await jobs.upsert(
             name=job.name,
-            provider_id=provider_ids[job.provider],
+            provider_id=provider_ids[job.provider] if job.provider else None,
             kind=job.kind,
             interval_minutes=job.interval_minutes,
             daily_at=job.daily_at,

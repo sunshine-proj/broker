@@ -66,13 +66,15 @@ class CollectionJob(Base):
     __tablename__ = "collection_job"
     __table_args__ = (
         sa.CheckConstraint("(interval_minutes IS NULL) <> (daily_at IS NULL)", name="schedule"),
+        # Quality jobs check every provider's data; every other job has one provider.
+        sa.CheckConstraint("(kind = 'quality') = (provider_id IS NULL)", name="provider"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=sa.text("gen_random_uuid()")
     )
     name: Mapped[str] = mapped_column(sa.String(128), unique=True)
-    provider_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("provider.id"))
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(sa.ForeignKey("provider.id"))
     kind: Mapped[JobKind] = mapped_column(enum_type(JobKind, "kind"))
     interval_minutes: Mapped[int | None]
     daily_at: Mapped[time | None] = mapped_column(sa.Time)
@@ -80,7 +82,7 @@ class CollectionJob(Base):
     market_hours_only: Mapped[bool] = mapped_column(server_default=sa.false())
     # Minutes after a failed run to try once more; null for no retry.
     retry_minutes: Mapped[int | None]
-    # Filters and windows: asset_types, observation_types, candle_interval, lookback_days.
+    # Filters, windows and data-quality settings; see SeedJob.settings().
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=sa.text("'{}'::jsonb"))
     enabled: Mapped[bool] = mapped_column(server_default=sa.true())
 

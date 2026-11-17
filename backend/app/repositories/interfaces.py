@@ -6,7 +6,7 @@ owns the transaction.
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Any, Protocol
@@ -33,6 +33,16 @@ from app.schemas.market_data import EconomicObservationIn, MarketObservationIn, 
 
 
 @dataclass(frozen=True)
+class Conflict:
+    """A stored time-series row that a provider re-sent with different values."""
+
+    # The row's key columns, by name.
+    key: dict[str, Any]
+    stored: dict[str, Any]
+    incoming: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class WriteResult:
     """Outcome of writing immutable time-series rows."""
 
@@ -41,6 +51,7 @@ class WriteResult:
     unchanged: int = 0
     # Already stored with different values; the stored row was kept.
     conflicting: int = 0
+    conflicts: tuple[Conflict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -140,6 +151,8 @@ class MarketDataRepository(Protocol):
         self, observations: Sequence[MarketObservationIn]
     ) -> WriteResult: ...
 
+    async def mark_suspect(self, keys: Sequence[Mapping[str, Any]]) -> int: ...
+
     async def get_observations(
         self,
         instrument_id: uuid.UUID,
@@ -221,7 +234,7 @@ class CollectionJobRepository(Protocol):
         self,
         *,
         name: str,
-        provider_id: uuid.UUID,
+        provider_id: uuid.UUID | None,
         kind: JobKind,
         interval_minutes: int | None,
         daily_at: time | None,
