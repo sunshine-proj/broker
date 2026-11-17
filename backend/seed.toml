@@ -36,6 +36,11 @@
 #   asset_type: stock, etf, crypto, forex, government_bond_yield, interest_rate,
 #               commodity, index
 #   frequency:  daily, weekly, monthly, quarterly, annual
+#   [[watchlists]], [[groups]]  name, title, instruments (symbols, in order),
+#                    description (optional), enabled (default true)  (PRD FR-015)
+#   [[spreads]]      name, title, long and short = { symbol, provider }: two
+#                    yield or interest-rate series; long minus short  (PRD FR-014)
+#
 #   kind:       quotes, candles, history, indicators, quality, backfill
 #
 # Instrument metadata `published_on_change = true` marks a rate recorded only
@@ -1178,3 +1183,83 @@ provider = "us_treasury"
 kind = "backfill"
 daily_at = "04:00"
 max_requests = 3
+
+# --- Watchlists and groups (PRD FR-015) -------------------------------------------------
+# A watchlist is an ordered list to follow together; a group is a set of
+# instruments that belong together, with an equal-weighted performance.
+
+[[watchlists]]
+name = "core"
+title = "Core markets"
+description = "One benchmark per asset class."
+instruments = ["SPY", "QQQ", "BTC/USD", "ETH/USD", "EUR/USD", "XAU/USD", "US10Y", "EA-AAA-10Y", "SOFR", "ESTR"]
+
+[[watchlists]]
+name = "crypto_venues"
+title = "Crypto: averages and Binance"
+description = "CoinGecko's cross-exchange averages beside Binance's Tether prices."
+instruments = ["BTC/USD", "BTC/USDT", "ETH/USD", "ETH/USDT", "SOL/USD", "SOL/USDT"]
+
+[[groups]]
+name = "us_megacaps"
+title = "US mega-cap stocks"
+instruments = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
+
+[[groups]]
+name = "us_equity_etfs"
+title = "US equity ETFs"
+instruments = ["SPY", "QQQ", "VTI", "IWM"]
+
+[[groups]]
+name = "diversifiers"
+title = "International equities, bonds and gold"
+instruments = ["EFA", "AGG", "GLD", "XAU/USD"]
+
+[[groups]]
+name = "crypto_majors"
+title = "Major cryptocurrencies"
+instruments = ["BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD"]
+
+[[groups]]
+name = "fx_majors"
+title = "Major currency pairs"
+instruments = ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "EUR/GBP"]
+
+# --- Yield spreads (PRD FR-014) ---------------------------------------------------------
+# Long minus short, on the days both have a value. Each leg names its provider.
+
+[[spreads]]
+name = "us_10y_2y"
+title = "US Treasury 10-year minus 2-year"
+long = { symbol = "US10Y", provider = "us_treasury" }
+short = { symbol = "US2Y", provider = "us_treasury" }
+
+[[spreads]]
+name = "us_10y_3m"
+title = "US Treasury 10-year minus 3-month"
+long = { symbol = "US10Y", provider = "us_treasury" }
+short = { symbol = "US3M", provider = "us_treasury" }
+
+[[spreads]]
+name = "ea_aaa_10y_2y"
+title = "Euro area AAA 10-year minus 2-year"
+long = { symbol = "EA-AAA-10Y", provider = "ecb" }
+short = { symbol = "EA-AAA-2Y", provider = "ecb" }
+
+[[spreads]]
+name = "ea_all_aaa_10y"
+title = "Euro area 10-year: all issuers minus AAA"
+long = { symbol = "EA-ALL-10Y", provider = "ecb" }
+short = { symbol = "EA-AAA-10Y", provider = "ecb" }
+
+[[spreads]]
+name = "us_ea_10y"
+title = "US Treasury minus euro area AAA, 10-year"
+long = { symbol = "US10Y", provider = "us_treasury" }
+short = { symbol = "EA-AAA-10Y", provider = "ecb" }
+
+[[spreads]]
+name = "sofr_effr"
+title = "SOFR minus EFFR"
+long = { symbol = "SOFR", provider = "nyfed" }
+short = { symbol = "EFFR", provider = "nyfed" }

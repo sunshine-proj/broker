@@ -25,3 +25,7 @@ dist/
 # Database backups (they contain every stored value)
 backups/*
 !backups/.gitkeep
+
+# Private portfolio holdings (PRD FR-016); only the example is committed
+portfolio/*
+!portfolio/portfolio.example.toml

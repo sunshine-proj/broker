@@ -9,6 +9,7 @@ observations refer to them; set `enabled = false` to stop tracking something.
 
 import logging
 import tomllib
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from app.repositories.interfaces import (
     CollectionJobRepository,
     EconomicDataRepository,
     InstrumentRepository,
+    ListRepository,
     ProviderRepository,
 )
 from app.schemas.seed import SeedFile
@@ -38,6 +40,8 @@ class SeedSummary:
     mappings: int = 0
     indicators: int = 0
     jobs: int = 0
+    lists: int = 0
+    spreads: int = 0
 
 
 def load_seed_file(path: Path) -> SeedFile:
@@ -61,12 +65,15 @@ async def apply_seed(
     instruments: InstrumentRepository,
     economic_data: EconomicDataRepository,
     jobs: CollectionJobRepository,
+    lists: ListRepository | None = None,
 ) -> SeedSummary:
     """Create or update everything in `seed`. The caller commits.
 
     Raises SeedError, before writing anything, if the enabled jobs would use
     more than a provider's rate limits allow (PRD FR-011).
     """
+    if lists is None and (seed.watchlists or seed.groups or seed.spreads):
+        raise SeedError("watchlists, groups and spreads need a list repository")
     try:
         usages = check_budget(seed)
     except BudgetExceededError as exc:
@@ -103,8 +110,9 @@ async def apply_seed(
     }
 
     mappings = 0
+    instrument_ids: dict[str, uuid.UUID] = {}
     for instrument in seed.instruments:
-        instrument_id = await instruments.upsert(
+        instrument_id = instrument_ids[instrument.symbol] = await instruments.upsert(
             symbol=instrument.symbol,
             name=instrument.name,
             asset_type=instrument.asset_type,
@@ -151,6 +159,30 @@ async def apply_seed(
     if disabled:
         logger.info("Jobs no longer in the seed file disabled", extra={"count": disabled})
 
+    if lists is not None:
+        for kind, entries in (("watchlist", seed.watchlists), ("group", seed.groups)):
+            for entry in entries:
+                await lists.upsert_list(
+                    kind=kind,
+                    name=entry.name,
+                    title=entry.title,
+                    description=entry.description,
+                    enabled=entry.enabled,
+                    instrument_ids=[instrument_ids[symbol] for symbol in entry.instruments],
+                )
+        for spread in seed.spreads:
+            await lists.upsert_spread(
+                name=spread.name,
+                title=spread.title,
+                long=(instrument_ids[spread.long.symbol], provider_ids[spread.long.provider]),
+                short=(instrument_ids[spread.short.symbol], provider_ids[spread.short.provider]),
+                enabled=spread.enabled,
+            )
+        await lists.disable_others(
+            [entry.name for entry in (*seed.watchlists, *seed.groups)],
+            [spread.name for spread in seed.spreads],
+        )
+
     summary = SeedSummary(
         exchanges=len(seed.exchanges),
         providers=len(seed.providers),
@@ -158,6 +190,8 @@ async def apply_seed(
         mappings=mappings,
         indicators=len(seed.indicators),
         jobs=len(seed.jobs),
+        lists=len(seed.watchlists) + len(seed.groups),
+        spreads=len(seed.spreads),
     )
     logger.info("Seed applied", extra=summary.__dict__)
     return summary

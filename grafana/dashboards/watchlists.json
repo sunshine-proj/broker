@@ -1,0 +1,562 @@
+{
+  "uid": "watchlists",
+  "title": "Watchlists and Groups",
+  "description": "The watchlists and instrument groups of the seed file (PRD FR-015), with the performance of their members and each group's equal-weighted performance.",
+  "tags": [
+    "market-data"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-6M",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "market-data"
+      ],
+      "asDropdown": true,
+      "title": "Market Data dashboards",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "watchlist",
+        "label": "Watchlist",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT name AS __value, title AS __text FROM instrument_list\n WHERE kind = 'watchlist' AND enabled ORDER BY name\n",
+        "definition": "SELECT name AS __value, title AS __text FROM instrument_list\n WHERE kind = 'watchlist' AND enabled ORDER BY name\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "group",
+        "label": "Group",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT name AS __value, title AS __text FROM instrument_list\n WHERE kind = 'group' AND enabled ORDER BY name\n",
+        "definition": "SELECT name AS __value, title AS __text FROM instrument_list\n WHERE kind = 'group' AND enabled ORDER BY name\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Data sources",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Stock, ETF, intraday currency and gold data: [Twelve Data](https://twelvedata.com).  \n**Powered by [CoinGecko](https://www.coingecko.com)**  \nExchange prices: [Binance](https://www.binance.com) spot market.  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \nSOFR, EFFR and OBFR are subject to the [Terms of Use](https://www.newyorkfed.org/privacy/termsofuse.html) posted at newyorkfed.org. The New York Fed is not responsible for publication of these rates by this platform, does not sanction or endorse any particular republication, and has no liability for your use. SOFR is calculated using data provided under a license granted to the New York Fed by DTCC Solutions LLC.  \nSource: [U.S. Department of the Treasury](https://home.treasury.gov), Daily Treasury Par Yield Curve Rates."
+      },
+      "id": 1
+    },
+    {
+      "type": "table",
+      "title": "Watchlist: ${watchlist}",
+      "description": "In list order, each provider's series on its own row. Returns in percent; rates and yields change in percentage points.",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 day"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 week"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 month"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "3 months"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "YTD"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 year"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "#"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": " SELECT m.position AS \"#\",\n        m.symbol AS \"Symbol\",\n        m.instrument_name AS \"Name\",\n        f.provider AS \"Provider\",\n        f.day AS \"Close of\",\n        f.close AS \"Close\",\n        coalesce(f.currency, f.unit) AS \"Unit\",\n        CASE WHEN f.unit = 'percent' THEN 'pp' ELSE '%' END AS \"In\",\n        max(CASE WHEN f.unit = 'percent' THEN f.daily_change\n                 ELSE f.daily_return * 100 END) AS \"1 day\",\n        max(CASE WHEN f.horizon = '1w' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 week\",\nmax(CASE WHEN f.horizon = '1m' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 month\",\nmax(CASE WHEN f.horizon = '3m' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"3 months\",\nmax(CASE WHEN f.horizon = 'ytd' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"YTD\",\nmax(CASE WHEN f.horizon = '1y' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 year\"\n   FROM v_instrument_list m\n   LEFT JOIN v_performance f\n     ON f.instrument_id = m.instrument_id\n    AND f.observation_type = primary_observation_type(f.asset_type)\n  WHERE m.list = ${watchlist:sqlstring}\n  GROUP BY m.position, m.symbol, m.instrument_name, f.provider, f.day, f.close,\n           f.currency, f.unit\n  ORDER BY m.position, f.provider\n "
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Watchlist relative performance",
+      "description": "Daily closes rebased to 100 at the first close in the time range.",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day AS \"time\", symbol || ' · ' || provider AS metric, rebased AS value\n  FROM relative_performance(ARRAY(SELECT instrument_id FROM v_instrument_list WHERE list = ${watchlist:sqlstring}), $__timeFrom(), $__timeTo())\n WHERE rebased IS NOT NULL\n ORDER BY 1\n"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Group performance",
+      "description": "The average of the members' returns, each member weighted equally, with its main series from the provider with the most daily closes. Rates and yields are not averaged.",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT title AS \"Group\",\n       max(performance) FILTER (WHERE horizon = '1w') * 100 AS \"1 week\",\n       max(performance) FILTER (WHERE horizon = '1m') * 100 AS \"1 month\",\n       max(performance) FILTER (WHERE horizon = '3m') * 100 AS \"3 months\",\n       max(performance) FILTER (WHERE horizon = 'ytd') * 100 AS \"YTD\",\n       max(performance) FILTER (WHERE horizon = '1y') * 100 AS \"1 year\",\n       max(members_with_value) FILTER (WHERE horizon = '1w')\n           || ' of ' || max(members) AS \"Members with a value (1 week)\"\n  FROM v_group_performance\n GROUP BY title\n ORDER BY title\n"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Group members: ${group}",
+      "description": "Each member's series from every provider, in percent.",
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 day"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 week"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 month"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "3 months"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "YTD"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 year"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": " SELECT m.symbol AS \"Symbol\",\n        f.provider AS \"Provider\",\n        f.close AS \"Close\",\n        coalesce(f.currency, f.unit) AS \"Unit\",\n        max(CASE WHEN f.horizon = '1w' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 week\",\nmax(CASE WHEN f.horizon = '1m' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 month\",\nmax(CASE WHEN f.horizon = '3m' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"3 months\",\nmax(CASE WHEN f.horizon = 'ytd' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"YTD\",\nmax(CASE WHEN f.horizon = '1y' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 year\"\n   FROM v_instrument_list m\n   LEFT JOIN v_performance f\n     ON f.instrument_id = m.instrument_id\n    AND f.observation_type = primary_observation_type(f.asset_type)\n  WHERE m.list = ${group:sqlstring}\n  GROUP BY m.position, m.symbol, f.provider, f.close, f.currency, f.unit\n  ORDER BY m.position, f.provider\n "
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "table",
+      "title": "Watchlist freshness",
+      "description": "How current the values behind the watchlist are.",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 172800
+                    },
+                    {
+                      "color": "red",
+                      "value": 432000
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       provider AS \"Provider\",\n       observation_type AS \"Data\",\n       freshness AS \"Freshness\",\n       observed_at AS \"Latest value at\",\n       age_seconds AS \"Age\"\n  FROM v_latest_observation\n WHERE instrument_id IN (SELECT instrument_id FROM v_instrument_list WHERE list = ${watchlist:sqlstring})\n   AND observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level')\n ORDER BY symbol, provider\n"
+        }
+      ],
+      "id": 6
+    }
+  ]
+}

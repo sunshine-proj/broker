@@ -146,6 +146,11 @@ async def session(migrated_database: Settings) -> AsyncIterator[AsyncSession]:
 
 # Every table holding data; truncated by `empty_database`.
 DATA_TABLES = (
+    "portfolio_holding",
+    "portfolio",
+    "instrument_list_member",
+    "instrument_list",
+    "yield_spread",
     "database_backup",
     "data_quality_issue",
     "collector_execution",
@@ -165,6 +170,17 @@ DATA_TABLES = (
 async def truncate_data(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
         await connection.execute(sa.text(f"TRUNCATE {', '.join(DATA_TABLES)} CASCADE"))
+        # The continuous aggregate is not emptied by truncating what it reads.
+        await connection.execute(sa.text("TRUNCATE daily_observation"))
+
+
+async def refresh_daily_observation(engine: AsyncEngine) -> None:
+    """Bring the daily continuous aggregate up to date with what is committed."""
+    async with engine.connect() as connection:
+        connection = await connection.execution_options(isolation_level="AUTOCOMMIT")
+        await connection.execute(
+            sa.text("CALL refresh_continuous_aggregate('daily_observation', NULL, NULL)")
+        )
 
 
 @pytest.fixture

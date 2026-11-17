@@ -62,6 +62,7 @@ How to run the platform in production: the server, the configuration, HTTPS, acc
    - The provider keys you use (`TWELVEDATA_API_KEY` and others). See [providers/](providers/) for their licences, in particular Twelve Data's "internal non-display" free plan.
    - `ADMIN_API_KEY`: leave empty unless you need manual job triggers through the API.
    - `BACKUP_UID` and `BACKUP_GID`: the owner of `BACKUP_DIR` (`id -u`, `id -g`).
+   - Portfolio tracking (optional): copy `portfolio/portfolio.example.toml` to `portfolio/portfolio.toml` (or to `PORTFOLIO_DIR`) and make it readable by the `migrate` container (`chmod 644`). It is loaded at every start. Everyone who can open Grafana or the API sees the holdings.
 
 3. Check it:
 
@@ -186,6 +187,8 @@ Make a backup now:
 ```bash
 docker compose run --rm --no-deps --entrypoint /bin/sh backup /backup/run-backup.sh
 ```
+
+The backup contains the portfolio holdings loaded from the private portfolio file, but not the file itself; keep a copy of `portfolio/portfolio.toml` with the backups.
 
 Not in the backup: Grafana's own database (users, preferences) and Prometheus's metrics. Dashboards and datasources come from the repository anyway. To keep Grafana's users, back up the `grafana_data` volume, for example by archiving it with `docker run --rm -v market-data-platform_grafana_data:/data -v "$PWD":/out alpine tar czf /out/grafana.tgz -C /data .`.
 

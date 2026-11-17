@@ -149,3 +149,83 @@ def test_observation_value_keeps_decimal_precision() -> None:
     )
 
     assert observation.value == Decimal("0.000000012345678901")
+
+
+# --- Watchlists, groups and spreads (PRD FR-014, FR-015) ---------------------------------------
+
+LISTS_SEED = (
+    VALID_SEED
+    + """
+[[instruments]]
+symbol = "US10Y"
+name = "US 10-year"
+asset_type = "government_bond_yield"
+providers = { example = "DGS10" }
+
+[[instruments]]
+symbol = "US2Y"
+name = "US 2-year"
+asset_type = "government_bond_yield"
+providers = { example = "DGS2" }
+
+[[watchlists]]
+name = "mine"
+title = "Mine"
+instruments = ["EUR/USD", "AAPL"]
+
+[[groups]]
+name = "tech"
+title = "Tech"
+instruments = ["AAPL"]
+
+[[spreads]]
+name = "us_10y_2y"
+title = "10y - 2y"
+long = { symbol = "US10Y", provider = "example" }
+short = { symbol = "US2Y", provider = "example" }
+"""
+)
+
+
+def test_lists_and_spreads_are_parsed(tmp_path: Path) -> None:
+    seed = load_seed_file(write(tmp_path, LISTS_SEED))
+
+    assert [w.instruments for w in seed.watchlists] == [["EUR/USD", "AAPL"]]
+    assert [g.name for g in seed.groups] == ["tech"]
+    assert (seed.spreads[0].long.symbol, seed.spreads[0].short.provider) == ("US10Y", "example")
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (('instruments = ["AAPL"]', 'instruments = ["MSFT"]'), "MSFT matches 0 instruments"),
+        (('instruments = ["AAPL"]', 'instruments = ["AAPL", "AAPL"]'), "listed twice"),
+        (('instruments = ["AAPL"]', "instruments = []"), "instruments"),
+        (('name = "tech"', 'name = "mine"'), "duplicate list: mine"),
+        (('name = "tech"', 'name = "Tech!"'), "name"),
+        (('long = { symbol = "US10Y"', 'long = { symbol = "AAPL"'), "not a yield or interest rate"),
+        (('short = { symbol = "US2Y"', 'short = { symbol = "US5Y"'), "unknown short US5Y"),
+        (
+            (
+                'short = { symbol = "US2Y", provider = "example"',
+                'short = { symbol = "US2Y", provider = "other"',
+            ),
+            "no provider other",
+        ),
+    ],
+)
+def test_invalid_lists_and_spreads_are_rejected(
+    tmp_path: Path, change: tuple[str, str], message: str
+) -> None:
+    old, new = change
+    assert old in LISTS_SEED
+
+    with pytest.raises(SeedError, match=message):
+        load_seed_file(write(tmp_path, LISTS_SEED.replace(old, new, 1)))
+
+
+def test_shipped_lists_and_spreads_are_valid(settings: Settings) -> None:
+    seed = load_seed_file(settings.seed_file)
+
+    assert {w.name for w in seed.watchlists} >= {"core"}
+    assert seed.groups and seed.spreads

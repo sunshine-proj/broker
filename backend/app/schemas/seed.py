@@ -214,12 +214,50 @@ def _duplicates(values: list[Any]) -> list[Any]:
     return repeated
 
 
+class SeedList(_SeedModel):
+    """A watchlist or a group (PRD FR-015): instruments named by symbol."""
+
+    name: str = Field(pattern=r"^[a-z0-9_]+$", max_length=128)
+    title: str
+    description: str | None = None
+    instruments: list[str] = Field(min_length=1)
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        repeated = _duplicates(self.instruments)
+        if repeated:
+            raise ValueError(f"list {self.name}: instruments listed twice: {', '.join(repeated)}")
+        return self
+
+
+class SeedSpreadLeg(_SeedModel):
+    symbol: str
+    provider: str
+
+
+class SeedSpread(_SeedModel):
+    """A spread between two yield or rate series (PRD FR-014): long minus short."""
+
+    name: str = Field(pattern=r"^[a-z0-9_]+$", max_length=128)
+    title: str
+    long: SeedSpreadLeg
+    short: SeedSpreadLeg
+    enabled: bool = True
+
+
+_SPREAD_ASSET_TYPES = (AssetType.GOVERNMENT_BOND_YIELD, AssetType.INTEREST_RATE)
+
+
 class SeedFile(_SeedModel):
     exchanges: list[SeedExchange] = Field(default_factory=list)
     providers: list[SeedProvider] = Field(default_factory=list)
     instruments: list[SeedInstrument] = Field(default_factory=list)
     indicators: list[SeedIndicator] = Field(default_factory=list)
     jobs: list[SeedJob] = Field(default_factory=list)
+    watchlists: list[SeedList] = Field(default_factory=list)
+    groups: list[SeedList] = Field(default_factory=list)
+    spreads: list[SeedSpread] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_references_and_duplicates(self) -> Self:
@@ -254,6 +292,39 @@ class SeedFile(_SeedModel):
         for job in self.jobs:
             if job.provider is not None and job.provider not in provider_names:
                 problems.append(f"job {job.name}: unknown provider {job.provider}")
+
+        by_symbol: dict[str, list[SeedInstrument]] = {}
+        for instrument in self.instruments:
+            by_symbol.setdefault(instrument.symbol, []).append(instrument)
+        problems += [
+            f"duplicate list: {name}"
+            for name in _duplicates([lst.name for lst in (*self.watchlists, *self.groups)])
+        ]
+        problems += [
+            f"duplicate spread: {name}" for name in _duplicates([s.name for s in self.spreads])
+        ]
+        for lst in (*self.watchlists, *self.groups):
+            for symbol in lst.instruments:
+                matches = by_symbol.get(symbol, [])
+                if len(matches) != 1:
+                    problems.append(
+                        f"list {lst.name}: {symbol} matches {len(matches)} instruments, not one"
+                    )
+        for spread in self.spreads:
+            for leg_name, leg in (("long", spread.long), ("short", spread.short)):
+                matches = by_symbol.get(leg.symbol, [])
+                if len(matches) != 1:
+                    problems.append(f"spread {spread.name}: unknown {leg_name} {leg.symbol}")
+                    continue
+                instrument = matches[0]
+                if instrument.asset_type not in _SPREAD_ASSET_TYPES:
+                    problems.append(
+                        f"spread {spread.name}: {leg.symbol} is not a yield or interest rate"
+                    )
+                if leg.provider not in instrument.providers:
+                    problems.append(
+                        f"spread {spread.name}: {leg.symbol} has no provider {leg.provider}"
+                    )
 
         if problems:
             raise ValueError("; ".join(problems))

@@ -1729,6 +1729,596 @@ def collector_monitoring() -> dict[str, Any]:
     )
 
 
+
+# --- Analytics, watchlists and portfolios (PRD FR-014 to FR-016) ---------------------------------
+
+# Every provider whose daily closes the analytics may use.
+MARKET_PROVIDERS = ("twelve_data", "coingecko", "binance", "ecb", "nyfed", "us_treasury")
+
+ANALYTICS_NOTE = """
+Calculated from stored daily closes (one per instrument, provider and UTC day: the daily
+candle, else the day's last value), never stored and never mixed across providers.
+Returns are in percent; rates and yields change in **percentage points** (pp) instead.
+Volatility is annualised (365 days for crypto, 252 otherwise). Delayed, end-of-day and
+reference data are shown as such in the market dashboards.
+"""
+
+
+def horizon_columns(alias: str = "f") -> str:
+    """Pivot v_performance's horizons into columns: percent for returns, points otherwise."""
+    columns = []
+    for horizon, label in (("1w", "1 week"), ("1m", "1 month"), ("3m", "3 months"),
+                           ("ytd", "YTD"), ("1y", "1 year")):
+        columns.append(
+            f"max(CASE WHEN {alias}.horizon = '{horizon}' THEN "
+            f"CASE WHEN {alias}.unit = 'percent' THEN {alias}.performance "
+            f"ELSE {alias}.performance * 100 END END) AS \"{label}\""
+        )
+    return ",\n               ".join(columns)
+
+
+def change_overrides() -> list[dict[str, Any]]:
+    return [
+        override(label, unit="none", decimals=2)
+        for label in ("1 day", "1 week", "1 month", "3 months", "YTD", "1 year")
+    ]
+
+
+def market_analytics() -> dict[str, Any]:
+    chosen = "symbol IN (${symbol:sqlstring})"
+    ids = "ARRAY(SELECT id FROM instrument WHERE symbol IN (${symbol:sqlstring}))"
+    return dashboard(
+        "market-analytics",
+        "Market Analytics",
+        "Returns, moving averages, volatility, relative performance, currency conversion, "
+        "yield spreads and yield curves, calculated from stored daily closes (PRD FR-014).",
+        [
+            attribution(*MARKET_PROVIDERS),
+            text("About these figures", ANALYTICS_NOTE, height=4),
+            table(
+                "Performance",
+                f"""
+                SELECT f.symbol AS "Symbol",
+                       f.instrument_name AS "Name",
+                       f.provider AS "Provider",
+                       f.day AS "Close of",
+                       f.close AS "Close",
+                       coalesce(f.currency, f.unit) AS "Unit",
+                       CASE WHEN f.unit = 'percent' THEN 'pp' ELSE '%' END AS "In",
+                       max(CASE WHEN f.unit = 'percent' THEN f.daily_change
+                                ELSE f.daily_return * 100 END) AS "1 day",
+                       {horizon_columns()},
+                       max(f.sma_50) AS "SMA 50",
+                       max(f.sma_200) AS "SMA 200",
+                       max(f.volatility_20d) AS "Volatility 20d",
+                       max(f.volatility_60d) AS "Volatility 60d"
+                  FROM v_performance f
+                 WHERE f.{chosen}
+                   AND f.observation_type = primary_observation_type(f.asset_type)
+                 GROUP BY f.symbol, f.instrument_name, f.provider, f.day, f.close,
+                          f.currency, f.unit
+                 ORDER BY f.symbol, f.provider
+                """,
+                height=9,
+                unit="none",
+                description="Changes against the last close at or before each date. "
+                "Volatility: of daily log returns (of daily changes, for rates and yields).",
+                overrides=change_overrides()
+                + [
+                    override("Volatility 20d", unit="percentunit", decimals=1),
+                    override("Volatility 60d", unit="percentunit", decimals=1),
+                ],
+            ),
+            timeseries(
+                "Relative performance",
+                f"""
+                SELECT day AS "time", symbol || ' · ' || provider AS metric, rebased AS value
+                  FROM relative_performance({ids}, $__timeFrom(), $__timeTo())
+                 WHERE rebased IS NOT NULL
+                 ORDER BY 1
+                """,
+                unit="none",
+                decimals=1,
+                height=9,
+                description="Daily closes rebased to 100 at the first close in the time range. "
+                "Rates and yields are not rebased.",
+            ),
+            timeseries(
+                "Close and moving averages",
+                f"""
+                SELECT day AS "time", symbol || ' · ' || provider || ' close' AS metric,
+                       close AS value
+                  FROM v_daily_metrics
+                 WHERE $__timeFilter(day) AND {chosen}
+                   AND observation_type = primary_observation_type(asset_type)
+                UNION ALL
+                SELECT day, symbol || ' · ' || provider || ' SMA 50', sma_50
+                  FROM v_daily_metrics
+                 WHERE $__timeFilter(day) AND {chosen} AND sma_50 IS NOT NULL
+                   AND observation_type = primary_observation_type(asset_type)
+                UNION ALL
+                SELECT day, symbol || ' · ' || provider || ' SMA 200', sma_200
+                  FROM v_daily_metrics
+                 WHERE $__timeFilter(day) AND {chosen} AND sma_200 IS NOT NULL
+                   AND observation_type = primary_observation_type(asset_type)
+                 ORDER BY 1
+                """,
+                unit="none",
+                decimals=2,
+                height=9,
+                width=12,
+                description="Simple moving averages of daily closes, once the full window exists.",
+            ),
+            timeseries(
+                "Monthly returns",
+                f"""
+                SELECT period_start AS "time", symbol || ' · ' || provider AS metric,
+                       CASE WHEN unit = 'percent' THEN change ELSE return * 100 END AS value
+                  FROM v_period_return
+                 WHERE period = 'month' AND $__timeFilter(period_start) AND {chosen}
+                   AND observation_type = primary_observation_type(asset_type)
+                   AND previous_close IS NOT NULL
+                 ORDER BY 1
+                """,
+                bars=False,
+                unit="none",
+                decimals=2,
+                height=9,
+                width=12,
+                description="From each month's last close: percent, or points for rates and "
+                "yields. Weekly returns: /api/v1/analytics/returns?period=week.",
+                custom={"drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1,
+                        "showPoints": "never"},
+            ),
+            table(
+                "Latest closes in ${currency}",
+                f"""
+                SELECT symbol AS "Symbol",
+                       provider AS "Provider",
+                       day AS "Close of",
+                       close AS "Close",
+                       currency AS "Currency",
+                       close * fx_rate(currency, ${{currency:sqlstring}}, day) AS "Converted",
+                       ${{currency:sqlstring}} AS "In"
+                  FROM v_performance
+                 WHERE {chosen} AND horizon = '1w' AND unit = 'currency'
+                   AND observation_type = primary_observation_type(asset_type)
+                 ORDER BY symbol, provider
+                """,
+                height=8,
+                width=12,
+                unit="none",
+                decimals=4,
+                description="Converted with the exchange rate of the close's day (the ECB's "
+                "reference rate where it exists, otherwise any provider, its inverse, or a cross "
+                "through EUR or USD), at most 4 days older. Empty when no rate is known.",
+            ),
+            timeseries(
+                "Yield spreads",
+                """
+                SELECT day AS "time", title AS metric, spread_bp AS value
+                  FROM v_yield_spread
+                 WHERE $__timeFilter(day) AND name IN (${spread:sqlstring})
+                 ORDER BY 1
+                """,
+                unit="suffix: bp",
+                decimals=0,
+                height=8,
+                width=12,
+                description="Long minus short, in basis points, on the days both have a value. "
+                "Each leg is read from the provider the seed file names.",
+            ),
+            panel(
+                "barchart",
+                "Yield curve: ${curve}",
+                [
+                    target(
+                        """
+                        SELECT maturity AS "Maturity",
+                               latest AS "Latest",
+                               week_ago AS "A week earlier",
+                               month_ago AS "A month earlier",
+                               year_ago AS "A year earlier"
+                          FROM v_yield_curve
+                         WHERE curve = ${curve:sqlstring} AND provider = (
+                               SELECT min(provider) FROM v_yield_curve
+                                WHERE curve = ${curve:sqlstring})
+                         ORDER BY maturity_months
+                        """
+                    )
+                ],
+                width=12,
+                height=9,
+                unit="percent",
+                decimals=2,
+                description="The curve on its latest day, against the curve a week, a month "
+                "and a year before that day.",
+                options={"xField": "Maturity", "orientation": "vertical", "showValue": "never",
+                         "legend": {"displayMode": "list", "placement": "bottom"}},
+            ),
+            table(
+                "Yield curve points",
+                """
+                SELECT maturity AS "Maturity", symbol AS "Symbol", provider AS "Provider",
+                       day AS "Day", latest AS "Latest", week_ago AS "A week earlier",
+                       month_ago AS "A month earlier", year_ago AS "A year earlier"
+                  FROM v_yield_curve
+                 WHERE curve = ${curve:sqlstring}
+                 ORDER BY provider, maturity_months
+                """,
+                width=12,
+                height=9,
+                unit="percent",
+                decimals=2,
+            ),
+            freshness(
+                "Data freshness",
+                f"observation_type IN {PRICE_LIKE}",
+                warn=2 * 86400,
+                crit=5 * 86400,
+                description="Daily closes are as current as the data they are calculated from.",
+            ),
+        ],
+        variables=[
+            variable(
+                "asset_type",
+                "Asset type",
+                """
+                SELECT DISTINCT asset_type FROM instrument WHERE enabled ORDER BY 1
+                """,
+            ),
+            variable(
+                "symbol",
+                "Instruments",
+                """
+                SELECT symbol FROM instrument
+                 WHERE enabled AND asset_type IN (${asset_type:sqlstring})
+                 ORDER BY symbol
+                """,
+            ),
+            variable(
+                "currency",
+                "Convert into",
+                """
+                SELECT 'EUR' UNION SELECT 'USD'
+                UNION SELECT metadata->>'quote' FROM instrument WHERE asset_type = 'forex'
+                 ORDER BY 1
+                """,
+                multi=False,
+            ),
+            variable(
+                "spread",
+                "Spreads",
+                "SELECT name FROM yield_spread WHERE enabled ORDER BY name",
+            ),
+            variable(
+                "curve",
+                "Curve",
+                "SELECT DISTINCT curve FROM v_yield_curve ORDER BY 1",
+                multi=False,
+            ),
+        ],
+        time_from="now-1y",
+        refresh="1h",
+    )
+
+
+def watchlists() -> dict[str, Any]:
+    members = (
+        "SELECT instrument_id FROM v_instrument_list WHERE list = ${watchlist:sqlstring}"
+    )
+    return dashboard(
+        "watchlists",
+        "Watchlists and Groups",
+        "The watchlists and instrument groups of the seed file (PRD FR-015), with the "
+        "performance of their members and each group's equal-weighted performance.",
+        [
+            attribution(*MARKET_PROVIDERS),
+            table(
+                "Watchlist: ${watchlist}",
+                f"""
+                SELECT m.position AS "#",
+                       m.symbol AS "Symbol",
+                       m.instrument_name AS "Name",
+                       f.provider AS "Provider",
+                       f.day AS "Close of",
+                       f.close AS "Close",
+                       coalesce(f.currency, f.unit) AS "Unit",
+                       CASE WHEN f.unit = 'percent' THEN 'pp' ELSE '%' END AS "In",
+                       max(CASE WHEN f.unit = 'percent' THEN f.daily_change
+                                ELSE f.daily_return * 100 END) AS "1 day",
+                       {horizon_columns()}
+                  FROM v_instrument_list m
+                  LEFT JOIN v_performance f
+                    ON f.instrument_id = m.instrument_id
+                   AND f.observation_type = primary_observation_type(f.asset_type)
+                 WHERE m.list = ${{watchlist:sqlstring}}
+                 GROUP BY m.position, m.symbol, m.instrument_name, f.provider, f.day, f.close,
+                          f.currency, f.unit
+                 ORDER BY m.position, f.provider
+                """,
+                height=10,
+                unit="none",
+                description="In list order, each provider's series on its own row. Returns in "
+                "percent; rates and yields change in percentage points.",
+                overrides=change_overrides() + [override("#", decimals=0)],
+            ),
+            timeseries(
+                "Watchlist relative performance",
+                f"""
+                SELECT day AS "time", symbol || ' · ' || provider AS metric, rebased AS value
+                  FROM relative_performance(ARRAY({members}), $__timeFrom(), $__timeTo())
+                 WHERE rebased IS NOT NULL
+                 ORDER BY 1
+                """,
+                unit="none",
+                decimals=1,
+                height=9,
+                description="Daily closes rebased to 100 at the first close in the time range.",
+            ),
+            table(
+                "Group performance",
+                """
+                SELECT title AS "Group",
+                       max(performance) FILTER (WHERE horizon = '1w') * 100 AS "1 week",
+                       max(performance) FILTER (WHERE horizon = '1m') * 100 AS "1 month",
+                       max(performance) FILTER (WHERE horizon = '3m') * 100 AS "3 months",
+                       max(performance) FILTER (WHERE horizon = 'ytd') * 100 AS "YTD",
+                       max(performance) FILTER (WHERE horizon = '1y') * 100 AS "1 year",
+                       max(members_with_value) FILTER (WHERE horizon = '1w')
+                           || ' of ' || max(members) AS "Members with a value (1 week)"
+                  FROM v_group_performance
+                 GROUP BY title
+                 ORDER BY title
+                """,
+                width=12,
+                height=8,
+                unit="percent",
+                decimals=2,
+                description="The average of the members' returns, each member weighted "
+                "equally, with its main series from the provider with the most daily closes. "
+                "Rates and yields are not averaged.",
+            ),
+            table(
+                "Group members: ${group}",
+                f"""
+                SELECT m.symbol AS "Symbol",
+                       f.provider AS "Provider",
+                       f.close AS "Close",
+                       coalesce(f.currency, f.unit) AS "Unit",
+                       {horizon_columns()}
+                  FROM v_instrument_list m
+                  LEFT JOIN v_performance f
+                    ON f.instrument_id = m.instrument_id
+                   AND f.observation_type = primary_observation_type(f.asset_type)
+                 WHERE m.list = ${{group:sqlstring}}
+                 GROUP BY m.position, m.symbol, f.provider, f.close, f.currency, f.unit
+                 ORDER BY m.position, f.provider
+                """,
+                width=12,
+                height=8,
+                unit="none",
+                overrides=change_overrides(),
+                description="Each member's series from every provider, in percent.",
+            ),
+            table(
+                "Watchlist freshness",
+                f"""
+                SELECT symbol AS "Symbol",
+                       provider AS "Provider",
+                       observation_type AS "Data",
+                       freshness AS "Freshness",
+                       observed_at AS "Latest value at",
+                       age_seconds AS "Age"
+                  FROM v_latest_observation
+                 WHERE instrument_id IN ({members})
+                   AND observation_type IN {PRICE_LIKE}
+                 ORDER BY symbol, provider
+                """,
+                height=7,
+                overrides=[age_override("Age", 2 * 86400, 5 * 86400)],
+                description="How current the values behind the watchlist are.",
+            ),
+        ],
+        variables=[
+            variable(
+                "watchlist",
+                "Watchlist",
+                """
+                SELECT name AS __value, title AS __text FROM instrument_list
+                 WHERE kind = 'watchlist' AND enabled ORDER BY name
+                """,
+                multi=False,
+            ),
+            variable(
+                "group",
+                "Group",
+                """
+                SELECT name AS __value, title AS __text FROM instrument_list
+                 WHERE kind = 'group' AND enabled ORDER BY name
+                """,
+                multi=False,
+            ),
+        ],
+        time_from="now-6M",
+        refresh="1h",
+    )
+
+
+def portfolio() -> dict[str, Any]:
+    chosen = "portfolio = ${portfolio:sqlstring}"
+    money = {"unit": "none", "decimals": 2}
+    return dashboard(
+        "portfolio",
+        "Portfolio",
+        "The value of the holdings in the private portfolio file (PRD FR-016), in the "
+        "portfolio's base currency. Tracking only: no trading, rebalancing or advice.",
+        [
+            attribution(*MARKET_PROVIDERS),
+            text(
+                "About this portfolio",
+                """
+Holdings come from the private portfolio file and are valued at each day's close, converted
+into the base currency (**${base}**) at that day's exchange rate. Totals cover only the holdings
+with a price and a rate. Everyone who can open this dashboard sees these holdings.
+""",
+                height=3,
+            ),
+            panel(
+                "stat",
+                "Totals (${base})",
+                [
+                    target(
+                        f"""
+                        SELECT sum(value) AS "Value",
+                               sum(cost) AS "Cost",
+                               sum(value) - sum(cost) AS "Unrealised profit"
+                          FROM v_portfolio_holding
+                         WHERE {chosen} AND value IS NOT NULL AND cost IS NOT NULL
+                        """
+                    )
+                ],
+                height=4,
+                width=16,
+                **money,
+                options={
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                    "textMode": "value_and_name",
+                    "colorMode": "none",
+                    "graphMode": "none",
+                },
+            ),
+            panel(
+                "stat",
+                "Return on cost",
+                [
+                    target(
+                        f"""
+                        SELECT sum(value) / nullif(sum(cost), 0) - 1 AS "Return"
+                          FROM v_portfolio_holding
+                         WHERE {chosen} AND value IS NOT NULL AND cost IS NOT NULL
+                        """
+                    )
+                ],
+                height=4,
+                width=8,
+                unit="percentunit",
+                decimals=2,
+                options={
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                    "textMode": "value",
+                    "colorMode": "value",
+                    "graphMode": "none",
+                },
+            ),
+            table(
+                "Holdings",
+                f"""
+                SELECT symbol AS "Symbol",
+                       instrument_name AS "Name",
+                       provider AS "Priced by",
+                       quantity AS "Quantity",
+                       price AS "Price",
+                       price_currency AS "Currency",
+                       price_day AS "Close of",
+                       value AS "Value",
+                       cost AS "Cost",
+                       profit AS "Profit",
+                       profit_percent AS "Profit %",
+                       weight AS "Weight"
+                  FROM v_portfolio_holding
+                 WHERE {chosen}
+                 ORDER BY value DESC NULLS LAST, symbol
+                """,
+                height=8,
+                **money,
+                overrides=[
+                    override("Quantity", decimals=None),
+                    override("Profit %", unit="percentunit", decimals=1),
+                    override("Weight", unit="percentunit", decimals=1),
+                ],
+                description="Value and cost in the base currency. The cost is converted at the "
+                "rate of the acquisition date, or of the first valued day.",
+            ),
+            timeseries(
+                "Value and cost (${base})",
+                """
+                SELECT day AS "time", 'value' AS metric, value
+                  FROM portfolio_value_history(${portfolio:sqlstring}, $__timeFrom(), $__timeTo())
+                UNION ALL
+                SELECT day, 'cost', cost
+                  FROM portfolio_value_history(${portfolio:sqlstring}, $__timeFrom(), $__timeTo())
+                 ORDER BY 1
+                """,
+                width=16,
+                height=9,
+                **money,
+                description="Every calendar day, each holding at its newest close at most 7 "
+                "days older. A holding counts from its acquisition date, or its first close.",
+            ),
+            panel(
+                "piechart",
+                "Allocation",
+                [
+                    target(
+                        f"""
+                        SELECT symbol AS metric, value
+                          FROM v_portfolio_holding
+                         WHERE {chosen} AND value IS NOT NULL
+                         ORDER BY value DESC
+                        """
+                    )
+                ],
+                width=8,
+                height=9,
+                unit="none",
+                decimals=2,
+                options={
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": True},
+                    "pieType": "donut",
+                    "legend": {"displayMode": "table", "placement": "right",
+                               "values": ["percent"]},
+                },
+            ),
+            table(
+                "Price freshness",
+                f"""
+                SELECT symbol AS "Symbol",
+                       provider AS "Priced by",
+                       price_day AS "Close of",
+                       extract(epoch FROM now() - price_day) AS "Age"
+                  FROM v_portfolio_holding
+                 WHERE {chosen}
+                 ORDER BY price_day NULLS FIRST, symbol
+                """,
+                height=6,
+                overrides=[age_override("Age", 3 * 86400, 7 * 86400)],
+                description="The day of each holding's price. Without a close in the last 7 "
+                "days a holding has no value.",
+            ),
+        ],
+        variables=[
+            variable(
+                "portfolio",
+                "Portfolio",
+                "SELECT name FROM portfolio ORDER BY name",
+                multi=False,
+            ),
+            {
+                **variable(
+                    "base",
+                    "Base currency",
+                    "SELECT base_currency FROM portfolio WHERE name = ${portfolio:sqlstring}",
+                    multi=False,
+                ),
+                "hide": 2,
+            },
+        ],
+        time_from="now-1y",
+        refresh="1h",
+    )
+
+
 def all_dashboards() -> list[dict[str, Any]]:
     return [
         global_overview(),
@@ -1745,6 +2335,9 @@ def all_dashboards() -> list[dict[str, Any]]:
         collection_failures(),
         indicators(),
         collector_monitoring(),
+        market_analytics(),
+        watchlists(),
+        portfolio(),
     ]
 
 

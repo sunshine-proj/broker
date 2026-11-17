@@ -1,0 +1,46 @@
+# Portfolio holdings (PRD FR-016). Copy to portfolio/portfolio.toml and edit;
+# that file is git-ignored and must never be committed. It is loaded at every
+# start (`docker compose up`), or with `python -m app.cli portfolio`, and
+# replaces every stored portfolio: a portfolio removed here is removed there,
+# and without the file there are no portfolios.
+#
+# Everyone who can open the Portfolio dashboard or call the API sees these
+# holdings.
+#
+# Holdings are positions, not transactions: record a sale by changing the
+# quantity and cost basis, or by removing the holding.
+#
+# [[portfolios]]       name (lower-case letters, digits, _), base_currency (ISO code)
+# [[portfolios.holdings]]
+#   symbol            an instrument of the seed file
+#   provider          the provider whose daily closes value the holding
+#   quantity          units held (> 0)
+#   cost_basis        total cost of the position (>= 0)
+#   cost_currency     currency of cost_basis; default: the base currency
+#   acquired_on       optional date; the holding is valued from this day on, and
+#                     its cost converted at this day's rate
+#   note              optional
+#
+# Stocks, ETFs, cryptocurrencies and commodities can be held. Values are
+# converted into the base currency with the exchange rate of each day (the
+# ECB's reference rate where it exists); without a rate, a value stays empty.
+
+[[portfolios]]
+name = "example"
+base_currency = "EUR"
+
+[[portfolios.holdings]]
+symbol = "SPY"
+provider = "twelve_data"
+quantity = 10
+cost_basis = 5500.00
+cost_currency = "USD"
+acquired_on = 2026-08-03
+
+[[portfolios.holdings]]
+symbol = "BTC/USD"
+provider = "coingecko"
+quantity = 0.05
+cost_basis = 4000.00
+acquired_on = 2026-08-03
+note = "valued with CoinGecko's cross-exchange average"

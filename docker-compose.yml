@@ -65,16 +65,17 @@ services:
     networks:
       - internal
 
-  # Applies database migrations, the seed file and the storage policies, and sets
-  # up the backend's and Grafana's database roles, then exits. The backend and
-  # Grafana wait for it. It connects as the database owner.
+  # Applies database migrations, the seed file, the private portfolio file and
+  # the storage policies, and sets up the backend's and Grafana's database
+  # roles, then exits. The backend and Grafana wait for it. It connects as the
+  # database owner.
   migrate:
     build: ./backend
     command:
       - sh
       - -c
       - >-
-        alembic upgrade head && python -m app.cli seed
+        alembic upgrade head && python -m app.cli seed && python -m app.cli portfolio
         && python -m app.cli storage-policies
         && python -m app.cli app-role && python -m app.cli reader-role
     restart: "no"
@@ -89,6 +90,9 @@ services:
       BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:?set BACKEND_DB_PASSWORD in .env}
       GRAFANA_DB_USER: ${GRAFANA_DB_USER:-grafana_reader}
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
+    volumes:
+      # Private holdings (PRD FR-016): portfolio/portfolio.toml, if present.
+      - ${PORTFOLIO_DIR:-./portfolio}:/portfolio:ro
     depends_on:
       db:
         condition: service_healthy

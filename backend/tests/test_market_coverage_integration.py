@@ -23,6 +23,7 @@ from app.providers.factory import ProviderFactory
 from app.repositories.collection_jobs import SqlCollectionJobRepository
 from app.repositories.economic_data import SqlEconomicDataRepository
 from app.repositories.instruments import SqlInstrumentRepository
+from app.repositories.lists import SqlListRepository
 from app.repositories.providers import SqlProviderRepository
 from app.services.seed import apply_seed, load_seed_file
 
@@ -77,6 +78,7 @@ async def runner(
             instruments=SqlInstrumentRepository(session),
             economic_data=SqlEconomicDataRepository(session),
             jobs=SqlCollectionJobRepository(session),
+            lists=SqlListRepository(session),
         )
         await session.commit()
     providers = ProviderFactory(

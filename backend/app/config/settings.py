@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     backend_db_user: str = "marketdata_app"
     backend_db_password: SecretStr | None = None
 
+    # Private holdings for portfolio tracking (PRD FR-016), loaded at every
+    # start by `python -m app.cli portfolio`. A missing file means no
+    # portfolios. Never commit it. In Docker, /portfolio is mounted from the
+    # repository's portfolio/ directory.
+    portfolio_file: Path = _BACKEND_DIR.parent / "portfolio" / "portfolio.toml"
+
     # Time-series storage (PRD section 6, Retention), applied by
     # `python -m app.cli storage-policies`. Unset compression means never;
     # unset retention means keep forever.

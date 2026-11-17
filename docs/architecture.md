@@ -98,6 +98,9 @@ The model is specified in [PRD.md](../PRD.md), section 7. This is how it is impl
 | `market_observation` | Hypertable, 7-day chunks | (`instrument_id`, `provider_id`, `observation_type`, `observed_at`) |
 | `ohlcv` | Hypertable, 30-day chunks | (`instrument_id`, `provider_id`, `interval`, `timestamp`) |
 | `economic_observation` | Regular table | (`indicator_id`, `observed_at`, `ingested_at`) |
+| `instrument_list`, `yield_spread`, `portfolio`, `portfolio_holding` | Entity (Phase 12) | UUID `id` |
+| `instrument_list_member` | Link | (`list_id`, `instrument_id`) |
+| `daily_observation` | Continuous aggregate of `market_observation` | (`instrument_id`, `provider_id`, `observation_type`, `day`) |
 
 - Enumerations are text columns with a check constraint, not PostgreSQL enum types, so adding a value is an ordinary migration.
 - Financial values are unconstrained `NUMERIC`, which stores every digit a provider sends.
@@ -380,6 +383,29 @@ router (app/api/v1)          parses and validates query parameters
 - **Unknown names:** a provider name in a filter that does not exist is an error (`unknown_provider`), not an empty result, so a typo is noticed.
 - **Providers:** `/providers` shows only the rate limits from a provider's configuration. Authentication settings, including the name of the key variable, are never returned.
 
+## Analytics
+
+Phase 12 (PRD FR-014 to FR-016). Every calculation is a database view or function, created by migration `0009`, so the API and Grafana compute the same numbers. Nothing calculated is stored.
+
+```text
+market_observation --(continuous aggregate, every 30 min + real time)--> daily_observation
+ohlcv (1day) + daily_observation --> v_daily_close        one close per instrument, provider, type, UTC day
+v_daily_close --> v_daily_metrics      daily return, SMA 20/50/200, volatility 20/60 days
+              --> v_period_return      weekly and monthly returns
+              --> v_performance        latest close and its 1w, 1m, 3m, YTD, 1y returns
+              --> v_yield_spread, v_yield_curve, relative_performance()
+v_performance + instrument_list --> v_group_performance   equal-weighted, per horizon
+portfolio_holding --> v_portfolio_holding, portfolio_value_history()   with fx_rate()
+```
+
+- **Daily closes:** a daily candle closes an instrument's main observation type (`primary_observation_type()`); other types, such as an ETF's NAV, keep their own series from the day's last observation. Each provider's series stays separate.
+- **Continuous aggregate:** `daily_observation` is refreshed every 30 minutes over its whole range (only changed buckets are recomputed, including late inserts into compressed chunks) and completes the newest data in real time. Truncating `market_observation` does not empty it; the test cleanup truncates it directly.
+- **Lookups:** `daily_close_at()` finds a series' newest close at or before a time, within a maximum age. It and `fx_direct()` are PL/pgSQL so that their plans are cached; as non-inlined SQL functions they were planned again on every call, which made a year of portfolio history take seconds.
+- **Currency conversion:** `fx_rate(from, to, day)` tries a direct pair (or its inverse) from any provider, preferring the ECB, then a cross through EUR or USD. Pairs are found by the `base` and `quote` metadata of forex and crypto instruments, so `USDT` converts through `USDT/USD`. No rate gives an empty value.
+- **Portfolio history:** `portfolio_value_history()` is set-based: each holding's closes are carried forward over a calendar of days with window functions, and each currency is converted once per day, not once per holding and day.
+- **Seed and portfolio files:** watchlists, groups and spreads are applied with the seed by `SqlListRepository`; lists and spreads removed from the file are disabled. `python -m app.cli portfolio` replaces every portfolio from the private file through `SqlPortfolioRepository`, after checking every holding, so a bad file changes nothing.
+- **API:** `app/api/v1/analytics.py` -> `services/analytics.py` -> `SqlAnalyticsRepository`, which only filters and orders the views.
+
 ## Grafana
 
 Grafana reads the database directly, through reporting views, as a read-only role, and Prometheus for the monitoring dashboards. It never writes and never calls the API.
@@ -406,6 +432,8 @@ Migration `0005` defines the SQL the dashboards share:
 
 `v_latest_observation` lists the observation types it covers; a new type must be added there by a migration.
 
+The analytics dashboards (Market Analytics, Watchlists and Groups, Portfolio) read the views and functions of migration `0009`, described under [Analytics](#analytics).
+
 ### Read-Only Role
 
 `python -m app.cli reader-role` runs in the `migrate` service after migrations and the seed. It:
@@ -418,7 +446,7 @@ Running after migrations means new tables and views are covered. Identifiers and
 
 ### Dashboards
 
-`scripts/build_dashboards.py` builds the ten dashboards from shared panel definitions:
+`scripts/build_dashboards.py` builds the dashboards from shared panel definitions:
 
 - a latest-values table;
 - series charts, with one line per instrument and provider;

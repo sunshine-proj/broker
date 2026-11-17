@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.database import get_session
+from app.repositories.analytics_queries import SqlAnalyticsRepository
 from app.repositories.read_queries import SqlReadRepository
 from app.schemas.errors import ErrorResponse
 
@@ -80,3 +81,10 @@ def repository(session: AsyncSession = Depends(get_session)) -> SqlReadRepositor
 Repository = Annotated[SqlReadRepository, Depends(repository)]
 Paging = Annotated[Pagination, Depends(pagination)]
 ProviderFilter = Annotated[str | None, Query(description="Provider name, for example `ecb`")]
+
+
+def analytics_repository(session: AsyncSession = Depends(get_session)) -> SqlAnalyticsRepository:
+    return SqlAnalyticsRepository(session)
+
+
+Analytics = Annotated[SqlAnalyticsRepository, Depends(analytics_repository)]

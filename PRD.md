@@ -277,6 +277,19 @@ Initial endpoints:
 - `GET /collectors/executions`
 - `POST /collectors/{job}/run`
 
+Analytics, lists and portfolios (FR-014 to FR-016, Phase 12):
+
+- `GET /analytics/performance`
+- `GET /analytics/daily`
+- `GET /analytics/returns`
+- `GET /analytics/relative`
+- `GET /analytics/spreads`
+- `GET /analytics/spreads/{name}`
+- `GET /analytics/yield-curves`
+- `GET /watchlists`, `GET /watchlists/{name}`
+- `GET /groups`, `GET /groups/{name}`
+- `GET /portfolios`, `GET /portfolios/{name}`, `GET /portfolios/{name}/history`
+
 `/indicators/{code}/observations` returns an indicator's history, current values or every revision. `/collectors/executions` returns the run history, newest first.
 
 `GET` endpoints are unauthenticated and rely on the service being bound to a trusted interface (loopback by default).
@@ -327,6 +340,7 @@ Initial dashboards:
 - Collector Monitoring
 - Commodities (delivered in Phase 8, together with commodity data)
 - Data Quality (delivered in Phase 9)
+- Market Analytics, Watchlists and Groups, and Portfolio (delivered in Phase 12)
 - System Monitoring, Provider Availability and Collection Failures (delivered in Phase 10, from Prometheus and the database)
 
 ### FR-009: Monitoring
@@ -411,6 +425,38 @@ Prometheus scrapes the backend, itself and Alertmanager, and evaluates the alert
 | `BackupFailed` | The newest backup run failed | warning |
 | `BackupMissing` | The last successful backup is older than the backup interval plus six hours | critical |
 | `BackupNeverRun` | The database is up but no backup has ever succeeded, for 2 hours | critical |
+
+### FR-014: Analytics
+
+Calculated from stored data, never stored as observations, and never across providers: each instrument's series from each provider is calculated on its own.
+
+- **Daily closes:** one value per instrument, provider and UTC day. It is the provider's daily candle close where there is one, otherwise the day's last price-like observation (`price`, `nav`, `rate`, `yield`, `index_level`). The daily last observations are a TimescaleDB continuous aggregate, refreshed every 30 minutes and completed in real time with the newest data.
+- **Daily close types:** a daily candle closes an instrument's main value (`price`; `rate` for forex and interest rates; `yield` for bond yields; `index_level` for indices). Other types, such as an ETF's NAV, are series of their own.
+- **Returns:** day over day; over 1 week, 1 month, 3 months, the year to date and 1 year, against the last close at or before that date (at most 9 days older, else empty); and weekly (from Monday, UTC) and monthly returns from each period's last close. Values in percent (rates, yields) are given as changes in percentage points instead.
+- **Moving averages:** simple 20-, 50- and 200-day averages of daily closes, given only once the full window exists.
+- **Volatility:** standard deviation of daily log returns over 20 and 60 closes, annualised with 365 days for crypto and 252 trading days otherwise. For values in percent, of daily changes in points.
+- **Relative performance:** each series rebased to 100 at its first close in a chosen period. Values in percent are not rebased.
+- **Currency conversion:** a value converted with the exchange rate in force on its day: the newest daily close of the pair at or before that day, at most 4 days older. The ECB's reference rate is preferred where it exists; otherwise any provider of the pair, its inverse, or a cross through EUR or USD. Without a rate the converted value is empty, never estimated.
+- **Yield spreads:** the difference between two yield or rate series, each from a named provider, on the days both have a value, in percentage points and basis points. Spreads are defined in the seed file.
+- **Yield curves:** a curve's yields by maturity on its latest day (at most 29 days old), compared with the curve a week, a month and a year before that day.
+
+### FR-015: Watchlists and Instrument Groups
+
+Defined in the seed file, like instruments, and read-only in the API and Grafana:
+
+- A **watchlist** is an ordered list of instruments to follow together.
+- A **group** is a set of instruments that belong together, such as "US mega-caps", with an equal-weighted group performance: per horizon, the average of the members' returns. Each member counts once, with its main series from the provider with the most daily closes. Rates and yields, which change in points, are not averaged.
+
+Each entry names instruments by symbol. A list removed from the seed file is disabled, not deleted. Per-user lists, and therefore user accounts and write endpoints, are not required (decided 2026-11-17).
+
+### FR-016: Portfolio Tracking
+
+Tracks the value of holdings; it does not trade, rebalance or recommend.
+
+- **Holdings** come from a private file, `PORTFOLIO_FILE` (default `portfolio/portfolio.toml` in the repository, git-ignored and never committed; in Docker, the directory `PORTFOLIO_DIR` mounted read-only into `migrate`), loaded at every start. A missing file means no portfolios. Stocks, ETFs, cryptocurrencies and commodities can be held. Each portfolio has a name and a base currency. Each holding has an instrument, the provider whose prices value it, a quantity, a cost basis in a stated currency, and an optional acquisition date. A holding is valued from its acquisition date on. Holdings are positions, not transactions: a sale is recorded by changing the file.
+- **Valuation:** every calendar day, each holding at its newest daily close at or before that day (at most 7 days older), converted into the base currency as in FR-014. The cost basis is converted at the rate of its acquisition date, or of its first valued day.
+- **Reported:** value and cost per holding and in total, unrealised profit or loss, weights, and the portfolio's daily value history.
+- Everyone who can see the Portfolio dashboard or call the API sees the holdings.
 
 ## 6. Non-Functional Requirements
 
@@ -684,6 +730,22 @@ Fields:
 - `interval_seconds` (how often the service runs)
 - `error` (failed runs)
 
+#### Instrument List
+
+A watchlist or group (FR-015). Fields: `id`, `kind` (`watchlist`, `group`), `name` (unique), `title`, `description`, `enabled`. Its members are in **Instrument List Member**: `list_id`, `instrument_id`, `position`; primary key (`list_id`, `instrument_id`).
+
+#### Yield Spread
+
+A spread between two series (FR-014). Fields: `id`, `name` (unique), `title`, `long_instrument_id`, `long_provider_id`, `short_instrument_id`, `short_provider_id`, `enabled`.
+
+#### Portfolio and Portfolio Holding
+
+FR-016. **Portfolio:** `id`, `name` (unique), `base_currency`, `loaded_at`. **Portfolio Holding:** `id`, `portfolio_id`, `instrument_id`, `provider_id`, `quantity`, `cost_basis`, `cost_currency`, `acquired_on` (nullable), `note`. Replaced from the portfolio file at every start.
+
+#### Daily Observation
+
+A continuous aggregate of market observations (FR-014): `instrument_id`, `provider_id`, `observation_type`, `day`, `open`, `high`, `low`, `close`, `observations`, `currency`, `unit`. Price-like observation types only.
+
 #### Provider Health
 
 Current health of a provider, one row per provider.
@@ -762,14 +824,15 @@ Grafana should provide:
 - Automated trading
 - Brokerage integrations
 - Order execution
-- Portfolio management
+- Portfolio management (trading, rebalancing). Portfolio tracking (FR-016) is in scope.
 - Investment recommendations
 - Machine-learning price predictions
 - Proprietary exchange connectivity
 - High-frequency trading infrastructure
 - Individual bond data
 - Licensed benchmarks and surveys (EURIBOR, PMI)
-- API write endpoints for instrument management, and user authentication
+- API write endpoints for instrument management, and user authentication (decided not required, 2026-11-17: watchlists and groups come from the seed file, holdings from a private file)
+- A custom web frontend (decided not required, 2026-11-17: Grafana is the interface)
 
 ## 11. Success Criteria
 

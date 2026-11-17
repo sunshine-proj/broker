@@ -39,7 +39,8 @@ compare() {
 }
 
 for table in exchange provider instrument instrument_provider_mapping economic_indicator \
-        collection_job alembic_version; do
+        collection_job instrument_list instrument_list_member yield_spread portfolio \
+        portfolio_holding alembic_version; do
     compare "$table" "$(psql -d "$POSTGRES_DB" -c "SELECT count(*) FROM $table")" \
         "$(psql -d "$scratch" -c "SELECT count(*) FROM $table")"
 done
@@ -52,6 +53,10 @@ compare "schema version" "$(psql -d "$POSTGRES_DB" -c "SELECT version_num FROM a
     "$(psql -d "$scratch" -c "SELECT version_num FROM alembic_version")"
 compare "hypertables" "$(psql -d "$POSTGRES_DB" -c "SELECT count(*) FROM timescaledb_information.hypertables")" \
     "$(psql -d "$scratch" -c "SELECT count(*) FROM timescaledb_information.hypertables")"
+# The daily continuous aggregate (Phase 12) answers from its restored materialization.
+compare "daily closes before the backup day" \
+    "$(psql -d "$POSTGRES_DB" -c "SELECT count(*) FROM daily_observation WHERE day < date_trunc('day', '$started'::timestamptz, 'UTC') - interval '1 day'")" \
+    "$(psql -d "$scratch" -c "SELECT count(*) FROM daily_observation WHERE day < date_trunc('day', '$started'::timestamptz, 'UTC') - interval '1 day'")"
 compare "compressed chunks readable" "ok" \
     "$(psql -d "$scratch" -c "SELECT CASE WHEN count(*) >= 0 THEN 'ok' END FROM market_observation WHERE observed_at < now() - interval '60 days'")"
 

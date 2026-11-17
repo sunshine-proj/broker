@@ -1,0 +1,765 @@
+{
+  "uid": "market-analytics",
+  "title": "Market Analytics",
+  "description": "Returns, moving averages, volatility, relative performance, currency conversion, yield spreads and yield curves, calculated from stored daily closes (PRD FR-014).",
+  "tags": [
+    "market-data"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-1y",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "market-data"
+      ],
+      "asDropdown": true,
+      "title": "Market Data dashboards",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "asset_type",
+        "label": "Asset type",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT DISTINCT asset_type FROM instrument WHERE enabled ORDER BY 1\n",
+        "definition": "SELECT DISTINCT asset_type FROM instrument WHERE enabled ORDER BY 1\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "symbol",
+        "label": "Instruments",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT symbol FROM instrument\n WHERE enabled AND asset_type IN (${asset_type:sqlstring})\n ORDER BY symbol\n",
+        "definition": "SELECT symbol FROM instrument\n WHERE enabled AND asset_type IN (${asset_type:sqlstring})\n ORDER BY symbol\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "currency",
+        "label": "Convert into",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT 'EUR' UNION SELECT 'USD'\nUNION SELECT metadata->>'quote' FROM instrument WHERE asset_type = 'forex'\n ORDER BY 1\n",
+        "definition": "SELECT 'EUR' UNION SELECT 'USD'\nUNION SELECT metadata->>'quote' FROM instrument WHERE asset_type = 'forex'\n ORDER BY 1\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "spread",
+        "label": "Spreads",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT name FROM yield_spread WHERE enabled ORDER BY name",
+        "definition": "SELECT name FROM yield_spread WHERE enabled ORDER BY name",
+        "refresh": 1,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "curve",
+        "label": "Curve",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT DISTINCT curve FROM v_yield_curve ORDER BY 1",
+        "definition": "SELECT DISTINCT curve FROM v_yield_curve ORDER BY 1",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Data sources",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Stock, ETF, intraday currency and gold data: [Twelve Data](https://twelvedata.com).  \n**Powered by [CoinGecko](https://www.coingecko.com)**  \nExchange prices: [Binance](https://www.binance.com) spot market.  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \nSOFR, EFFR and OBFR are subject to the [Terms of Use](https://www.newyorkfed.org/privacy/termsofuse.html) posted at newyorkfed.org. The New York Fed is not responsible for publication of these rates by this platform, does not sanction or endorse any particular republication, and has no liability for your use. SOFR is calculated using data provided under a license granted to the New York Fed by DTCC Solutions LLC.  \nSource: [U.S. Department of the Treasury](https://home.treasury.gov), Daily Treasury Par Yield Curve Rates."
+      },
+      "id": 1
+    },
+    {
+      "type": "text",
+      "title": "About these figures",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Calculated from stored daily closes (one per instrument, provider and UTC day: the daily\ncandle, else the day's last value), never stored and never mixed across providers.\nReturns are in percent; rates and yields change in **percentage points** (pp) instead.\nVolatility is annualised (365 days for crypto, 252 otherwise). Delayed, end-of-day and\nreference data are shown as such in the market dashboards."
+      },
+      "id": 2
+    },
+    {
+      "type": "table",
+      "title": "Performance",
+      "description": "Changes against the last close at or before each date. Volatility: of daily log returns (of daily changes, for rates and yields).",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 day"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 week"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 month"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "3 months"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "YTD"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 year"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volatility 20d"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volatility 60d"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": " SELECT f.symbol AS \"Symbol\",\n        f.instrument_name AS \"Name\",\n        f.provider AS \"Provider\",\n        f.day AS \"Close of\",\n        f.close AS \"Close\",\n        coalesce(f.currency, f.unit) AS \"Unit\",\n        CASE WHEN f.unit = 'percent' THEN 'pp' ELSE '%' END AS \"In\",\n        max(CASE WHEN f.unit = 'percent' THEN f.daily_change\n                 ELSE f.daily_return * 100 END) AS \"1 day\",\n        max(CASE WHEN f.horizon = '1w' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 week\",\nmax(CASE WHEN f.horizon = '1m' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 month\",\nmax(CASE WHEN f.horizon = '3m' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"3 months\",\nmax(CASE WHEN f.horizon = 'ytd' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"YTD\",\nmax(CASE WHEN f.horizon = '1y' THEN CASE WHEN f.unit = 'percent' THEN f.performance ELSE f.performance * 100 END END) AS \"1 year\",\n        max(f.sma_50) AS \"SMA 50\",\n        max(f.sma_200) AS \"SMA 200\",\n        max(f.volatility_20d) AS \"Volatility 20d\",\n        max(f.volatility_60d) AS \"Volatility 60d\"\n   FROM v_performance f\n  WHERE f.symbol IN (${symbol:sqlstring})\n    AND f.observation_type = primary_observation_type(f.asset_type)\n  GROUP BY f.symbol, f.instrument_name, f.provider, f.day, f.close,\n           f.currency, f.unit\n  ORDER BY f.symbol, f.provider\n "
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Relative performance",
+      "description": "Daily closes rebased to 100 at the first close in the time range. Rates and yields are not rebased.",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day AS \"time\", symbol || ' · ' || provider AS metric, rebased AS value\n  FROM relative_performance(ARRAY(SELECT id FROM instrument WHERE symbol IN (${symbol:sqlstring})), $__timeFrom(), $__timeTo())\n WHERE rebased IS NOT NULL\n ORDER BY 1\n"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "Close and moving averages",
+      "description": "Simple moving averages of daily closes, once the full window exists.",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day AS \"time\", symbol || ' · ' || provider || ' close' AS metric,\n       close AS value\n  FROM v_daily_metrics\n WHERE $__timeFilter(day) AND symbol IN (${symbol:sqlstring})\n   AND observation_type = primary_observation_type(asset_type)\nUNION ALL\nSELECT day, symbol || ' · ' || provider || ' SMA 50', sma_50\n  FROM v_daily_metrics\n WHERE $__timeFilter(day) AND symbol IN (${symbol:sqlstring}) AND sma_50 IS NOT NULL\n   AND observation_type = primary_observation_type(asset_type)\nUNION ALL\nSELECT day, symbol || ' · ' || provider || ' SMA 200', sma_200\n  FROM v_daily_metrics\n WHERE $__timeFilter(day) AND symbol IN (${symbol:sqlstring}) AND sma_200 IS NOT NULL\n   AND observation_type = primary_observation_type(asset_type)\n ORDER BY 1\n"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Monthly returns",
+      "description": "From each month's last close: percent, or points for rates and yields. Weekly returns: /api/v1/analytics/returns?period=week.",
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT period_start AS \"time\", symbol || ' · ' || provider AS metric,\n       CASE WHEN unit = 'percent' THEN change ELSE return * 100 END AS value\n  FROM v_period_return\n WHERE period = 'month' AND $__timeFilter(period_start) AND symbol IN (${symbol:sqlstring})\n   AND observation_type = primary_observation_type(asset_type)\n   AND previous_close IS NOT NULL\n ORDER BY 1\n"
+        }
+      ],
+      "id": 6
+    },
+    {
+      "type": "table",
+      "title": "Latest closes in ${currency}",
+      "description": "Converted with the exchange rate of the close's day (the ECB's reference rate where it exists, otherwise any provider, its inverse, or a cross through EUR or USD), at most 4 days older. Empty when no rate is known.",
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       provider AS \"Provider\",\n       day AS \"Close of\",\n       close AS \"Close\",\n       currency AS \"Currency\",\n       close * fx_rate(currency, ${currency:sqlstring}, day) AS \"Converted\",\n       ${currency:sqlstring} AS \"In\"\n  FROM v_performance\n WHERE symbol IN (${symbol:sqlstring}) AND horizon = '1w' AND unit = 'currency'\n   AND observation_type = primary_observation_type(asset_type)\n ORDER BY symbol, provider\n"
+        }
+      ],
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Yield spreads",
+      "description": "Long minus short, in basis points, on the days both have a value. Each leg is read from the provider the seed file names.",
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: bp",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day AS \"time\", title AS metric, spread_bp AS value\n  FROM v_yield_spread\n WHERE $__timeFilter(day) AND name IN (${spread:sqlstring})\n ORDER BY 1\n"
+        }
+      ],
+      "id": 8
+    },
+    {
+      "type": "barchart",
+      "title": "Yield curve: ${curve}",
+      "description": "The curve on its latest day, against the curve a week, a month and a year before that day.",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "Maturity",
+        "orientation": "vertical",
+        "showValue": "never",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT maturity AS \"Maturity\",\n       latest AS \"Latest\",\n       week_ago AS \"A week earlier\",\n       month_ago AS \"A month earlier\",\n       year_ago AS \"A year earlier\"\n  FROM v_yield_curve\n WHERE curve = ${curve:sqlstring} AND provider = (\n       SELECT min(provider) FROM v_yield_curve\n        WHERE curve = ${curve:sqlstring})\n ORDER BY maturity_months\n"
+        }
+      ],
+      "id": 9
+    },
+    {
+      "type": "table",
+      "title": "Yield curve points",
+      "description": "",
+      "gridPos": {
+        "x": 12,
+        "y": 47,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT maturity AS \"Maturity\", symbol AS \"Symbol\", provider AS \"Provider\",\n       day AS \"Day\", latest AS \"Latest\", week_ago AS \"A week earlier\",\n       month_ago AS \"A month earlier\", year_ago AS \"A year earlier\"\n  FROM v_yield_curve\n WHERE curve = ${curve:sqlstring}\n ORDER BY provider, maturity_months\n"
+        }
+      ],
+      "id": 10
+    },
+    {
+      "type": "table",
+      "title": "Data freshness",
+      "description": "Daily closes are as current as the data they are calculated from.",
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 172800
+                    },
+                    {
+                      "color": "red",
+                      "value": 432000
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       series AS \"Series\",\n       last_observed_at AS \"Latest value at\",\n       last_ingested_at AS \"Collected at\",\n       age_seconds AS \"Age\"\n  FROM v_data_freshness\n WHERE observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level')\n ORDER BY provider, asset_type, observation_type\n"
+        }
+      ],
+      "id": 11
+    }
+  ]
+}

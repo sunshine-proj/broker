@@ -1,0 +1,493 @@
+{
+  "uid": "portfolio",
+  "title": "Portfolio",
+  "description": "The value of the holdings in the private portfolio file (PRD FR-016), in the portfolio's base currency. Tracking only: no trading, rebalancing or advice.",
+  "tags": [
+    "market-data"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-1y",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "market-data"
+      ],
+      "asDropdown": true,
+      "title": "Market Data dashboards",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "portfolio",
+        "label": "Portfolio",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT name FROM portfolio ORDER BY name",
+        "definition": "SELECT name FROM portfolio ORDER BY name",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "base",
+        "label": "Base currency",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT base_currency FROM portfolio WHERE name = ${portfolio:sqlstring}",
+        "definition": "SELECT base_currency FROM portfolio WHERE name = ${portfolio:sqlstring}",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": [],
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Data sources",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Stock, ETF, intraday currency and gold data: [Twelve Data](https://twelvedata.com).  \n**Powered by [CoinGecko](https://www.coingecko.com)**  \nExchange prices: [Binance](https://www.binance.com) spot market.  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \nSOFR, EFFR and OBFR are subject to the [Terms of Use](https://www.newyorkfed.org/privacy/termsofuse.html) posted at newyorkfed.org. The New York Fed is not responsible for publication of these rates by this platform, does not sanction or endorse any particular republication, and has no liability for your use. SOFR is calculated using data provided under a license granted to the New York Fed by DTCC Solutions LLC.  \nSource: [U.S. Department of the Treasury](https://home.treasury.gov), Daily Treasury Par Yield Curve Rates."
+      },
+      "id": 1
+    },
+    {
+      "type": "text",
+      "title": "About this portfolio",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Holdings come from the private portfolio file and are valued at each day's close, converted\ninto the base currency (**${base}**) at that day's exchange rate. Totals cover only the holdings\nwith a price and a rate. Everyone who can open this dashboard sees these holdings."
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Totals (${base})",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 16,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sum(value) AS \"Value\",\n       sum(cost) AS \"Cost\",\n       sum(value) - sum(cost) AS \"Unrealised profit\"\n  FROM v_portfolio_holding\n WHERE portfolio = ${portfolio:sqlstring} AND value IS NOT NULL AND cost IS NOT NULL\n"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Return on cost",
+      "description": "",
+      "gridPos": {
+        "x": 16,
+        "y": 11,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sum(value) / nullif(sum(cost), 0) - 1 AS \"Return\"\n  FROM v_portfolio_holding\n WHERE portfolio = ${portfolio:sqlstring} AND value IS NOT NULL AND cost IS NOT NULL\n"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Holdings",
+      "description": "Value and cost in the base currency. The cost is converted at the rate of the acquisition date, or of the first valued day.",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Quantity"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": null
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Profit %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Weight"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       instrument_name AS \"Name\",\n       provider AS \"Priced by\",\n       quantity AS \"Quantity\",\n       price AS \"Price\",\n       price_currency AS \"Currency\",\n       price_day AS \"Close of\",\n       value AS \"Value\",\n       cost AS \"Cost\",\n       profit AS \"Profit\",\n       profit_percent AS \"Profit %\",\n       weight AS \"Weight\"\n  FROM v_portfolio_holding\n WHERE portfolio = ${portfolio:sqlstring}\n ORDER BY value DESC NULLS LAST, symbol\n"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Value and cost (${base})",
+      "description": "Every calendar day, each holding at its newest close at most 7 days older. A holding counts from its acquisition date, or its first close.",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 16,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day AS \"time\", 'value' AS metric, value\n  FROM portfolio_value_history(${portfolio:sqlstring}, $__timeFrom(), $__timeTo())\nUNION ALL\nSELECT day, 'cost', cost\n  FROM portfolio_value_history(${portfolio:sqlstring}, $__timeFrom(), $__timeTo())\n ORDER BY 1\n"
+        }
+      ],
+      "id": 6
+    },
+    {
+      "type": "piechart",
+      "title": "Allocation",
+      "description": "",
+      "gridPos": {
+        "x": 16,
+        "y": 23,
+        "w": 8,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "pieType": "donut",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "percent"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS metric, value\n  FROM v_portfolio_holding\n WHERE portfolio = ${portfolio:sqlstring} AND value IS NOT NULL\n ORDER BY value DESC\n"
+        }
+      ],
+      "id": 7
+    },
+    {
+      "type": "table",
+      "title": "Price freshness",
+      "description": "The day of each holding's price. Without a close in the last 7 days a holding has no value.",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 259200
+                    },
+                    {
+                      "color": "red",
+                      "value": 604800
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       provider AS \"Priced by\",\n       price_day AS \"Close of\",\n       extract(epoch FROM now() - price_day) AS \"Age\"\n  FROM v_portfolio_holding\n WHERE portfolio = ${portfolio:sqlstring}\n ORDER BY price_day NULLS FIRST, symbol\n"
+        }
+      ],
+      "id": 8
+    }
+  ]
+}

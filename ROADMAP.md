@@ -412,20 +412,20 @@ Delivered beyond the list: a US Treasury adapter (the primary source of the yiel
 
 ### Tasks
 
-- [ ] Implement watchlists.
-- [ ] Implement custom instrument groups.
-- [ ] Implement normalized currency conversion.
-- [ ] Implement percentage performance calculations.
-- [ ] Implement daily/weekly/monthly returns.
-- [ ] Implement volatility indicators.
-- [ ] Implement moving averages.
-- [ ] Implement relative asset performance.
-- [ ] Implement yield spread calculations.
-- [ ] Implement yield curve visualization.
-- [ ] Implement portfolio tracking.
-- [ ] Implement optional custom frontend.
-- [ ] Implement user authentication if required.
-- [ ] Implement instrument management write endpoints once authentication exists.
+- [x] Implement watchlists.
+- [x] Implement custom instrument groups.
+- [x] Implement normalized currency conversion.
+- [x] Implement percentage performance calculations.
+- [x] Implement daily/weekly/monthly returns.
+- [x] Implement volatility indicators.
+- [x] Implement moving averages.
+- [x] Implement relative asset performance.
+- [x] Implement yield spread calculations.
+- [x] Implement yield curve visualization.
+- [x] Implement portfolio tracking.
+- [ ] Implement optional custom frontend. Not required: Grafana is the interface (PRD section 10, decided 2026-11-17).
+- [ ] Implement user authentication if required. Not required: lists come from the seed file and holdings from a private file, so there are no per-user data or write endpoints (PRD FR-015, section 10, decided 2026-11-17).
+- [ ] Implement instrument management write endpoints once authentication exists. Not applicable while there is no authentication; instruments are managed in the seed file.
 
 ### Acceptance Criteria
 

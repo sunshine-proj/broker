@@ -2,6 +2,13 @@
 
 from app.models.base import Base
 from app.models.economic import EconomicIndicator, EconomicObservation
+from app.models.lists import (
+    InstrumentList,
+    InstrumentListMember,
+    Portfolio,
+    PortfolioHolding,
+    YieldSpread,
+)
 from app.models.market_data import OHLCV, MarketObservation
 from app.models.operations import (
     CollectionJob,
@@ -23,8 +30,13 @@ __all__ = [
     "EconomicObservation",
     "Exchange",
     "Instrument",
+    "InstrumentList",
+    "InstrumentListMember",
     "InstrumentProviderMapping",
     "MarketObservation",
+    "Portfolio",
+    "PortfolioHolding",
     "Provider",
     "ProviderHealth",
+    "YieldSpread",
 ]

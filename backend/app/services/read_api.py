@@ -63,7 +63,7 @@ PRIMARY_TYPE = {
 }
 
 
-def _page[T: BaseModel](
+def to_page[T: BaseModel](
     rows: list[Row], limit: int, offset: int, convert: Callable[[Row], T]
 ) -> Page[T]:
     """Rows were fetched with limit + 1; the extra row only says another page exists."""
@@ -75,7 +75,7 @@ def _page[T: BaseModel](
     )
 
 
-async def _check_provider(repository: SqlReadRepository, provider: str | None) -> None:
+async def check_provider(repository: SqlReadRepository, provider: str | None) -> None:
     if provider is not None and not await repository.provider_exists(provider):
         raise AppError(
             "unknown_provider",
@@ -85,7 +85,7 @@ async def _check_provider(repository: SqlReadRepository, provider: str | None) -
         )
 
 
-async def _instrument(repository: SqlReadRepository, instrument_id: uuid.UUID) -> Row:
+async def instrument_row(repository: SqlReadRepository, instrument_id: uuid.UUID) -> Row:
     row = await repository.get_instrument(instrument_id)
     if row is None:
         raise AppError(
@@ -109,7 +109,7 @@ async def list_instruments(
     limit: int,
     offset: int,
 ) -> Page[InstrumentOut]:
-    await _check_provider(repository, provider)
+    await check_provider(repository, provider)
     rows = await repository.list_instruments(
         asset_type=asset_type,
         enabled=enabled,
@@ -118,11 +118,11 @@ async def list_instruments(
         limit=limit + 1,
         offset=offset,
     )
-    return _page(rows, limit, offset, InstrumentOut.model_validate)
+    return to_page(rows, limit, offset, InstrumentOut.model_validate)
 
 
 async def get_instrument(repository: SqlReadRepository, instrument_id: uuid.UUID) -> InstrumentOut:
-    return InstrumentOut.model_validate(await _instrument(repository, instrument_id))
+    return InstrumentOut.model_validate(await instrument_row(repository, instrument_id))
 
 
 # --- Prices -----------------------------------------------------------------------------------
@@ -139,7 +139,7 @@ async def latest_prices(
     limit: int,
     offset: int,
 ) -> Page[ObservationOut]:
-    await _check_provider(repository, provider)
+    await check_provider(repository, provider)
     rows = await repository.latest_observations(
         observation_types=observation_types or PRICE_TYPES,
         asset_types=asset_types,
@@ -149,7 +149,7 @@ async def latest_prices(
         limit=limit + 1,
         offset=offset,
     )
-    return _page(rows, limit, offset, ObservationOut.model_validate)
+    return to_page(rows, limit, offset, ObservationOut.model_validate)
 
 
 async def price_history(
@@ -163,8 +163,8 @@ async def price_history(
     limit: int,
     offset: int,
 ) -> Page[ObservationOut]:
-    instrument = await _instrument(repository, instrument_id)
-    await _check_provider(repository, provider)
+    instrument = await instrument_row(repository, instrument_id)
+    await check_provider(repository, provider)
     rows = await repository.observation_history(
         instrument_id=instrument_id,
         observation_type=observation_type or PRIMARY_TYPE[instrument["asset_type"]],
@@ -174,7 +174,7 @@ async def price_history(
         limit=limit + 1,
         offset=offset,
     )
-    return _page(rows, limit, offset, ObservationOut.model_validate)
+    return to_page(rows, limit, offset, ObservationOut.model_validate)
 
 
 async def candles(
@@ -188,8 +188,8 @@ async def candles(
     limit: int,
     offset: int,
 ) -> Page[CandleOut]:
-    await _instrument(repository, instrument_id)
-    await _check_provider(repository, provider)
+    await instrument_row(repository, instrument_id)
+    await check_provider(repository, provider)
     rows = await repository.candles(
         instrument_id=instrument_id,
         interval=interval,
@@ -199,7 +199,7 @@ async def candles(
         limit=limit + 1,
         offset=offset,
     )
-    return _page(rows, limit, offset, CandleOut.model_validate)
+    return to_page(rows, limit, offset, CandleOut.model_validate)
 
 
 async def forex_rates(
@@ -212,7 +212,7 @@ async def forex_rates(
     limit: int,
     offset: int,
 ) -> Page[ForexRateOut]:
-    await _check_provider(repository, provider)
+    await check_provider(repository, provider)
     rows = await repository.latest_observations(
         observation_types=[ObservationType.RATE],
         asset_types=[AssetType.FOREX],
@@ -230,7 +230,7 @@ async def forex_rates(
             {**row, "base_currency": base_currency, "quote_currency": quote_currency}
         )
 
-    return _page(rows, limit, offset, convert)
+    return to_page(rows, limit, offset, convert)
 
 
 async def bond_yields(
@@ -241,7 +241,7 @@ async def bond_yields(
     limit: int,
     offset: int,
 ) -> Page[BondYieldOut]:
-    await _check_provider(repository, provider)
+    await check_provider(repository, provider)
     rows = await repository.latest_observations(
         observation_types=[ObservationType.YIELD],
         asset_types=[AssetType.GOVERNMENT_BOND_YIELD],
@@ -257,7 +257,7 @@ async def bond_yields(
             {**row, "country": metadata.get("country"), "maturity": metadata.get("maturity")}
         )
 
-    return _page(rows, limit, offset, convert)
+    return to_page(rows, limit, offset, convert)
 
 
 # --- Economic indicators ----------------------------------------------------------------------
@@ -273,7 +273,7 @@ async def list_indicators(
     limit: int,
     offset: int,
 ) -> Page[IndicatorOut]:
-    await _check_provider(repository, provider)
+    await check_provider(repository, provider)
     rows = await repository.indicators(
         country=country.upper() if country else None,
         provider=provider,
@@ -294,7 +294,7 @@ async def list_indicators(
             )
         return IndicatorOut.model_validate({**row, "latest": latest})
 
-    return _page(rows, limit, offset, convert)
+    return to_page(rows, limit, offset, convert)
 
 
 async def indicator_observations(
@@ -320,7 +320,7 @@ async def indicator_observations(
         limit=limit + 1,
         offset=offset,
     )
-    return _page(rows, limit, offset, IndicatorValueOut.model_validate)
+    return to_page(rows, limit, offset, IndicatorValueOut.model_validate)
 
 
 # --- Providers and collection ------------------------------------------------------------------
@@ -341,7 +341,7 @@ async def list_providers(
         fields: dict[str, Any] = {k: v for k, v in row.items() if k != "configuration"}
         return ProviderOut.model_validate({**fields, "rate_limits": limits})
 
-    return _page(rows, limit, offset, convert)
+    return to_page(rows, limit, offset, convert)
 
 
 async def job_status(
@@ -352,9 +352,9 @@ async def job_status(
     limit: int,
     offset: int,
 ) -> Page[JobStatusOut]:
-    await _check_provider(repository, provider)
+    await check_provider(repository, provider)
     rows = await repository.jobs(provider=provider, enabled=enabled, limit=limit + 1, offset=offset)
-    return _page(rows, limit, offset, JobStatusOut.model_validate)
+    return to_page(rows, limit, offset, JobStatusOut.model_validate)
 
 
 async def executions(
@@ -366,7 +366,7 @@ async def executions(
     offset: int,
 ) -> Page[ExecutionOut]:
     rows = await repository.executions(job=job, status=status, limit=limit + 1, offset=offset)
-    return _page(rows, limit, offset, ExecutionOut.model_validate)
+    return to_page(rows, limit, offset, ExecutionOut.model_validate)
 
 
 async def quality_issues(
@@ -381,7 +381,7 @@ async def quality_issues(
     limit: int,
     offset: int,
 ) -> Page[QualityIssueOut]:
-    await _check_provider(repository, provider)
+    await check_provider(repository, provider)
     rows = await repository.quality_issues(
         kind=kind,
         status=status,
@@ -392,4 +392,4 @@ async def quality_issues(
         limit=limit + 1,
         offset=offset,
     )
-    return _page(rows, limit, offset, QualityIssueOut.model_validate)
+    return to_page(rows, limit, offset, QualityIssueOut.model_validate)

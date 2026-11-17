@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 7 are complete (the MVP). Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover. Phases 9 (data quality and reliability), 10 (monitoring and alerting) and 11 (security and production deployment) are complete; see [ROADMAP.md](ROADMAP.md). For a production deployment, see [docs/deployment.md](docs/deployment.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
+**Status:** Phases 0 to 7 are complete (the MVP). Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover. Phases 9 (data quality and reliability), 10 (monitoring and alerting) and 11 (security and production deployment) are complete. Phase 12 adds analytics (returns, moving averages, volatility, relative performance, currency conversion, yield spreads and curves), watchlists, instrument groups and portfolio tracking; see [ROADMAP.md](ROADMAP.md). For a production deployment, see [docs/deployment.md](docs/deployment.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
 
 - **Twelve Data:** US stocks, ETFs, forex, spot gold.
 - **CoinGecko:** crypto prices and market data, averaged across exchanges.
@@ -242,6 +242,16 @@ Base path: `/api/v1`. Interactive documentation: <http://localhost:8000/docs> (S
 | GET | `/providers` | Providers, their rate limits and health |
 | GET | `/collectors/status` | Collection jobs: schedule, last run, outcome, next run |
 | GET | `/collectors/executions` | Run history, newest first. Filters: `job`, `status` |
+| GET | `/analytics/performance` | Each series' latest daily close with its returns over 1 week, 1 month, 3 months, YTD and 1 year, moving averages and volatility. Filters: `symbol`, `asset_type`, `provider`, `list` (a watchlist or group); `currency` adds the close converted |
+| GET | `/analytics/daily` | Daily closes of one instrument with daily return, moving averages and volatility (`instrument_id`; `observation_type`, `provider`, `currency`, `start`, `end`) |
+| GET | `/analytics/returns` | Weekly or monthly returns of one instrument (`instrument_id`, `period=week\|month`; `provider`, `start`, `end`) |
+| GET | `/analytics/relative` | Daily closes rebased to 100 (`instrument_id`, repeatable, and/or `list`; `provider`, `start`, `end`) |
+| GET | `/analytics/spreads`, `/analytics/spreads/{name}` | Yield spreads of the seed file, latest and history, in points and basis points |
+| GET | `/analytics/yield-curves` | Each curve's yields by maturity, with a week, a month and a year earlier. Filter: `curve` |
+| GET | `/watchlists`, `/watchlists/{name}` | Watchlists and their instruments, in order |
+| GET | `/groups`, `/groups/{name}` | Instrument groups, their members and equal-weighted performance |
+| GET | `/portfolios`, `/portfolios/{name}` | Portfolios: totals, and each holding's value, cost, profit and weight in the base currency |
+| GET | `/portfolios/{name}/history` | A portfolio's value and cost on every day (`start`, `end`) |
 | GET | `/quality/issues` | Data-quality issues, most recently seen first. Filters: `kind`, `status`, `provider`, `symbol`, `start`, `end` (last seen; default the last 7 days) |
 | POST | `/collectors/{job}/run` | Run a job now (requires `X-API-Key`; see [Collecting Data](#collecting-data)) |
 
@@ -250,7 +260,8 @@ Conventions:
 - **Pages:** lists return `{"items": [...], "limit": 100, "offset": 0, "has_more": false}`. `limit` is at most 1000. Fetch the next page with `offset` = `offset` + `limit`.
 - **Values:** sent as strings (`"1.1052"`), so no precision is lost.
 - **Timestamps:** ISO 8601 in UTC with a `Z`. `start` is inclusive and `end` exclusive; a timestamp without an offset is read as UTC.
-- **Time series:** returned oldest first. Default ranges are 30 days for price history, 90 days for candles and 10 years for indicators.
+- **Time series:** returned oldest first. Default ranges are 30 days for price history, 90 days for candles, 10 years for indicators, 2 years of periods for `/analytics/returns` and 1 year for the other analytics and portfolio history.
+- **Analytics:** calculated from stored daily closes, one per instrument, provider and UTC day (the daily candle, else the day's last value), dated by the start of the day. Returns are fractions (`"0.05"` is 5 %); rates and yields change in percentage points instead, which `measured_in` says. Nothing is estimated: without a close or an exchange rate, the value is empty.
 - **Several providers:** values from different providers are never merged. Each comes back as its own item, with its `provider`, `freshness` (`real_time`, `delayed`, `end_of_day`) and `quote_kind` (`traded`, `indicative`, `reference`).
 - **Errors:** `{"error": {"code": "...", "message": "...", "details": {...}}}`. For example, `instrument_not_found` (404), `unknown_provider` (422), `invalid_time_range` (422), `validation_error` (422).
 
@@ -262,6 +273,8 @@ Examples:
 curl "http://localhost:8000/api/v1/prices/latest?asset_type=crypto"
 curl "http://localhost:8000/api/v1/forex/rates?base=EUR&quote=USD"
 curl "http://localhost:8000/api/v1/indicators/US_CPI/observations?include_revisions=true"
+curl "http://localhost:8000/api/v1/analytics/performance?list=core&currency=EUR"
+curl "http://localhost:8000/api/v1/groups/us_megacaps"
 ```
 
 ## Grafana
@@ -283,6 +296,9 @@ Open <http://localhost:3000> and sign in with `GRAFANA_ADMIN_USER` and `GRAFANA_
 | System Monitoring | Availability of the backend, database, Prometheus and Alertmanager; firing alerts; API traffic, errors and latency |
 | Provider Availability | Health, success rate, requests by outcome, latency, retries and rate limiting per provider |
 | Collection Failures | Firing collection alerts, failed runs, time since each job's last success, errors |
+| Market Analytics | Performance over standard horizons, relative performance, moving averages, monthly returns, closes converted into a chosen currency, yield spreads and the yield curve against earlier curves |
+| Watchlists and Groups | A watchlist's instruments and their performance, and each group's equal-weighted performance |
+| Portfolio | A portfolio's value, cost, profit, holdings, allocation and value history |
 
 Every dashboard has:
 
@@ -330,6 +346,8 @@ Application configuration is provided through environment variables, read from `
 | `SCHEDULER_ENABLED` | `false` (`true` in the backend container) | Run the collection jobs on their schedules in this process. Enable it in one process only. |
 | `ADMIN_API_KEY` | (empty) | Key for triggering a job through the API (`X-API-Key` header). Empty disables API triggers. |
 | `SEED_FILE` | `backend/seed.toml` | Seed file to apply; in Docker, a path inside the backend image |
+| `PORTFOLIO_FILE` | `portfolio/portfolio.toml` | Private portfolio holdings (see [Portfolio Tracking](#portfolio-tracking)); outside Docker only |
+| `PORTFOLIO_DIR` | `./portfolio` | Host directory mounted read-only into `migrate`, holding `portfolio.toml` |
 | `FRED_API_KEY` | (empty) | [FRED](https://fredaccount.stlouisfed.org/apikeys) API key. Required for FRED collection. |
 | `COINGECKO_API_KEY` | (empty) | Optional [CoinGecko](https://www.coingecko.com/en/api) Demo key. Without it, CoinGecko's keyless API is used, at about 5 calls a minute. |
 | `TWELVEDATA_API_KEY` | (empty) | [Twelve Data](https://twelvedata.com/pricing) API key. The free Basic plan is enough for the default instruments. Without it, Twelve Data collection fails and is reported as a provider failure. |
@@ -382,6 +400,27 @@ Instruments carry metadata such as country, FIGI, ETF issuer and focus, pair bas
 ```bash
 docker compose run --rm migrate python -m app.cli search twelve_data "apple"
 ```
+
+## Watchlists and Groups
+
+Watchlists (`[[watchlists]]`, an ordered list of instruments to follow together) and groups (`[[groups]]`, instruments that belong together, with an equal-weighted performance) are defined in [backend/seed.toml](backend/seed.toml), like instruments, and are read-only in the API and Grafana. Yield spreads (`[[spreads]]`) are defined there too. A list removed from the file is disabled, not deleted.
+
+## Portfolio Tracking
+
+Holdings come from a private file, `portfolio/portfolio.toml`, which is git-ignored and must never be committed. Start from the example:
+
+```bash
+cp portfolio/portfolio.example.toml portfolio/portfolio.toml
+chmod 644 portfolio/portfolio.toml   # the migrate container reads it as another user
+```
+
+The file is loaded at every start (`docker compose up`), and replaces every stored portfolio: a portfolio removed from the file is removed, and without the file there are none. To reload it without restarting the stack:
+
+```bash
+docker compose run --rm migrate python -m app.cli portfolio
+```
+
+Each holding names an instrument of the seed file, the provider whose daily closes value it, a quantity, a cost basis and its currency, and optionally an acquisition date. Values are converted into the portfolio's base currency at each day's exchange rate. This tracks value only: it does not trade, rebalance or advise. **Everyone who can open the Portfolio dashboard or call the API sees the holdings**, and they are included in database backups.
 
 ## Collecting Data
 

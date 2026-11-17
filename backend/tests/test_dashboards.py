@@ -80,6 +80,9 @@ def test_every_dashboard_in_the_prd_exists() -> None:
         "System Monitoring",
         "Provider Availability",
         "Collection Failures",
+        "Market Analytics",
+        "Watchlists and Groups",
+        "Portfolio",
     }
 
 
@@ -137,6 +140,20 @@ def test_dashboard_structure(board: dict[str, Any]) -> None:
         ("commodities", ["Twelve Data"]),
         ("data-quality", ["CoinGecko", "Binance", "DTCC Solutions LLC", "FRED® API"]),
         ("economic-indicators", ["European Central Bank", "FRED® API"]),
+        *(
+            (
+                uid,
+                [
+                    "Twelve Data",
+                    "**Powered by [CoinGecko]",
+                    "Binance",
+                    "European Central Bank",
+                    "DTCC Solutions LLC",
+                    "U.S. Department of the Treasury",
+                ],
+            )
+            for uid in ("market-analytics", "watchlists", "portfolio")
+        ),
     ],
 )
 def test_dashboards_show_the_attribution_their_providers_require(
@@ -180,6 +197,8 @@ _VARIABLE = re.compile(r"\$\{(\w+):sqlstring\}")
 def expand(query: str, values: dict[str, list[str]]) -> str:
     """Expand the Grafana macros and variables the dashboards use, as Grafana would."""
     query = _TIME_FILTER.sub(r"\1 BETWEEN '2000-01-01T00:00:00Z' AND '2100-01-01T00:00:00Z'", query)
+    query = query.replace("$__timeFrom()", "'2000-01-01T00:00:00Z'")
+    query = query.replace("$__timeTo()", "'2100-01-01T00:00:00Z'")
 
     def variable(match: re.Match[str]) -> str:
         chosen = values.get(match.group(1)) or ["__no_value__"]

@@ -8,7 +8,8 @@ owns the transaction.
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any, Protocol
 
 from app.models import (
@@ -245,3 +246,69 @@ class CollectionJobRepository(Protocol):
     ) -> uuid.UUID: ...
 
     async def disable_others(self, names: Sequence[str]) -> int: ...
+
+
+class ListRepository(Protocol):
+    """Watchlists, groups and yield spreads (PRD FR-014, FR-015)."""
+
+    async def upsert_list(
+        self,
+        *,
+        kind: str,
+        name: str,
+        title: str,
+        description: str | None,
+        enabled: bool,
+        instrument_ids: Sequence[uuid.UUID],
+    ) -> uuid.UUID: ...
+
+    async def upsert_spread(
+        self,
+        *,
+        name: str,
+        title: str,
+        long: tuple[uuid.UUID, uuid.UUID],
+        short: tuple[uuid.UUID, uuid.UUID],
+        enabled: bool,
+    ) -> uuid.UUID: ...
+
+    async def disable_others(
+        self, list_names: Sequence[str], spread_names: Sequence[str]
+    ) -> int: ...
+
+
+@dataclass(frozen=True)
+class HoldingTarget:
+    """An instrument and a provider that prices it: what a holding can name."""
+
+    symbol: str
+    provider: str
+    instrument_id: uuid.UUID
+    provider_id: uuid.UUID
+    asset_type: AssetType
+
+
+@dataclass(frozen=True)
+class HoldingRecord:
+    instrument_id: uuid.UUID
+    provider_id: uuid.UUID
+    quantity: Decimal
+    cost_basis: Decimal
+    cost_currency: str
+    acquired_on: date | None
+    note: str | None
+
+
+@dataclass(frozen=True)
+class PortfolioRecord:
+    name: str
+    base_currency: str
+    holdings: Sequence[HoldingRecord]
+
+
+class PortfolioRepository(Protocol):
+    """Portfolios from the private portfolio file (PRD FR-016)."""
+
+    async def holding_targets(self) -> Sequence[HoldingTarget]: ...
+
+    async def replace_all(self, portfolios: Sequence[PortfolioRecord]) -> None: ...

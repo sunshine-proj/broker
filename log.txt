@@ -474,8 +474,41 @@ Twelve Data licence: whether its "non-display" free plan allows showing the data
 
 
 
+Phase 12 is finished and verified, apart from three roadmap items that are decisions, not code (below). The full suite passes (647 tests, database required), as do lint, the format check and the dashboard generator check. Nothing is committed.
+
+Fixes to the work already in progress
+
+Wrong NAV closes: a daily candle was joined to every observation type on its day, so an ETF's NAV series got the candle's price. Candles now only close an instrument's main value.
+Wrong comparison values: the horizon lookups ignored the observation type, so they could compare against the wrong series.
+Wrong portfolio cost: cost was converted at the latest price day. The PRD says the acquisition date, or else the first valued day.
+Group averages: groups averaged percentage-point changes of rates and yields together with returns. Rates and yields are now left out, and members with no data still count in the total.
+Speed: a year of portfolio history took 8.3 s for 5 holdings. That is too close to Grafana's 30 s limit, and it grew with every holding. After rewriting the slow parts it takes about 0.5 s against the live API; performance went from 1.5 s to about 0.3 s.
+Code layout: the seed service imported a database class directly, and the portfolio loader contained SQL. Both now follow the repository pattern the rest of the code uses.
+What I added
+
+14 read-only endpoints for analytics, watchlists, groups and portfolios. They are listed in the README and PRD.
+Portfolio file: a python -m app.cli portfolio command and a git-ignored portfolio/ directory with an example file. The migrate container reads it read-only at every start.
+Three Grafana dashboards: Market Analytics, Watchlists and Groups, and Portfolio. In the running Grafana, every panel query runs and returns data.
+Tests: unit tests for the seed lists, the portfolio file and request validation, and integration tests that check the calculated numbers. The backup/restore check now covers the new tables too.
+Docs: README, PRD, architecture, deployment, SKILLS.md, .env.example and the roadmap are updated. In the PRD, the portfolio file's default path is now portfolio/portfolio.toml, to match the code.
+Changes to your environment
+
+Your dev database is now at migration 0009. I rebuilt migrate and backend to apply it.
+To test the endpoints I loaded the example portfolio, then removed it again.
+The backup/restore test made two extra backups in ./backups; normal rotation keeps the newest 7.
+Decisions for you
+
+I left three roadmap items unticked, with a note on each: the custom frontend, user authentication, and write endpoints. The PRD records them as not required (2026-11-17). Tick them if you consider that decision enough.
+The portfolio file has to be readable by the container (chmod 644). The PRD already says that anyone who can see the dashboard or the API sees the holdings. The holdings are also included in database backups.
+Known limits
+
+If a holding's cost is in another currency and no exchange rate is stored for its acquisition date, its cost and profit stay empty. Nothing is estimated. Stating the cost in the base currency avoids this.
+Weekly returns are in the API only; Grafana shows monthly returns.
+The performance view recomputes every series on each request. That is fine at today's data size and slows as history grows.
 
 
+
+===========================================
 
 
 

@@ -2,6 +2,7 @@
 
 Usage:
     python -m app.cli seed [--file PATH]
+    python -m app.cli portfolio [--file PATH]
     python -m app.cli search PROVIDER QUERY
     python -m app.cli collect quotes PROVIDER [--types price,market_cap,...]
     python -m app.cli collect candles PROVIDER [--interval 1day] [--days 30]
@@ -45,12 +46,15 @@ from app.providers.factory import ProviderFactory
 from app.repositories.collection_jobs import SqlCollectionJobRepository
 from app.repositories.economic_data import SqlEconomicDataRepository
 from app.repositories.instruments import SqlInstrumentRepository
+from app.repositories.lists import SqlListRepository
 from app.repositories.market_data import SqlMarketDataRepository
+from app.repositories.portfolios import SqlPortfolioRepository
 from app.repositories.provider_health import SqlProviderHealthRepository
 from app.repositories.providers import SqlProviderRepository
 from app.repositories.quality import SqlQualityRepository
 from app.services.collection import CollectionOutcome, CollectionService
 from app.services.ingestion import IngestionService
+from app.services.portfolio import PortfolioError, apply_portfolios, load_portfolio_file
 from app.services.provider_health import ProviderHealthService
 from app.services.reader_role import ReaderRoleError, ensure_app_role, ensure_reader_role
 from app.services.seed import SeedError, apply_seed, load_seed_file
@@ -100,7 +104,18 @@ async def seed(settings: Settings, path: Path) -> None:
             instruments=SqlInstrumentRepository(session),
             economic_data=SqlEconomicDataRepository(session),
             jobs=SqlCollectionJobRepository(session),
+            lists=SqlListRepository(session),
         )
+        await session.commit()
+
+
+async def portfolio(settings: Settings, path: Path) -> None:
+    """Replace the stored portfolios with the portfolio file's (PRD FR-016)."""
+    portfolios = load_portfolio_file(path)
+    if not path.exists():
+        logger.info("No portfolio file; stored portfolios removed", extra={"path": str(path)})
+    async with _session(settings) as session:
+        await apply_portfolios(SqlPortfolioRepository(session), portfolios)
         await session.commit()
 
 
@@ -272,6 +287,13 @@ def _build_parser() -> argparse.ArgumentParser:
     seed_parser = commands.add_parser("seed", help="apply the seed file to the database")
     seed_parser.add_argument("--file", type=Path, help="seed file (default: SEED_FILE setting)")
 
+    portfolio_parser = commands.add_parser(
+        "portfolio", help="load the private portfolio file into the database"
+    )
+    portfolio_parser.add_argument(
+        "--file", type=Path, help="portfolio file (default: PORTFOLIO_FILE setting)"
+    )
+
     search_parser = commands.add_parser("search", help="search a provider's symbols")
     search_parser.add_argument("provider")
     search_parser.add_argument("query")
@@ -336,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "seed":
             asyncio.run(seed(settings, args.file or settings.seed_file))
+        elif args.command == "portfolio":
+            asyncio.run(portfolio(settings, args.file or settings.portfolio_file))
         elif args.command == "search":
             asyncio.run(search(settings, args.provider, args.query))
         elif args.command == "jobs":
@@ -360,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome = asyncio.run(collect(settings, request))
             # A provider failure is already logged and recorded; report it in the exit code.
             return 0 if outcome.succeeded else 2
-    except (SeedError, CommandError) as exc:
+    except (SeedError, PortfolioError, CommandError) as exc:
         logger.error("%s", exc)
         return 1
     return 0
