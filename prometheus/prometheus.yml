@@ -1,0 +1,28 @@
+# Prometheus configuration (PRD FR-013). See docs/monitoring.md.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # The backend reads the platform state from the database at each scrape,
+  # which can take a few seconds.
+  - job_name: backend
+    scrape_timeout: 20s
+    static_configs:
+      - targets: ["backend:8000"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]

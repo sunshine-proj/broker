@@ -355,19 +355,19 @@ Delivered beyond the list: a US Treasury adapter (the primary source of the yiel
 
 ### Tasks
 
-- [ ] Add Prometheus metrics endpoint.
-- [ ] Expose collector metrics.
-- [ ] Expose provider request metrics.
-- [ ] Expose API request metrics.
-- [ ] Configure Prometheus.
-- [ ] Configure Grafana Prometheus data source.
-- [ ] Create system monitoring dashboard.
-- [ ] Create provider availability dashboard.
-- [ ] Create collection failure dashboard.
-- [ ] Configure data freshness alerts.
-- [ ] Configure collector failure alerts.
-- [ ] Configure database availability alerts.
-- [ ] Document alert configuration.
+- [x] Add Prometheus metrics endpoint.
+- [x] Expose collector metrics.
+- [x] Expose provider request metrics.
+- [x] Expose API request metrics.
+- [x] Configure Prometheus.
+- [x] Configure Grafana Prometheus data source.
+- [x] Create system monitoring dashboard.
+- [x] Create provider availability dashboard.
+- [x] Create collection failure dashboard.
+- [x] Configure data freshness alerts.
+- [x] Configure collector failure alerts.
+- [x] Configure database availability alerts.
+- [x] Document alert configuration.
 
 ### Acceptance Criteria
 

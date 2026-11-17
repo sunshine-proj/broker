@@ -96,14 +96,22 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 - Every panel sets a unit, and every dashboard shows when its data was last updated.
 - Label delayed, end-of-day, and reference data as such.
 
-## 9. Docker
+## 9. Metrics and Alerts
+
+- Define process metrics in `app/monitoring/metrics.py` and platform-state metrics in `app/monitoring/database_metrics.py`. Prefix names with `marketdata_` and follow Prometheus naming (`_total` counters, `_seconds` durations).
+- Keep label values bounded: route templates, provider and job names, fixed outcome names. Never a raw path, symbol, error text or id.
+- Label job names `job_name`, never `job`.
+- An alert rule comes with a `severity` label, a summary and description, a test in `prometheus/tests/alerts_test.yml`, and an entry in `docs/monitoring.md` and PRD FR-013.
+- Run `scripts/check_monitoring.sh` after changing anything under `prometheus/` or `alertmanager/`.
+
+## 10. Docker
 
 - Pin image versions.
 - Every service has a health check and a restart policy.
 - Published ports bind to `BIND_ADDRESS`, which defaults to loopback.
 - Persistent data lives in named volumes.
 
-## 10. Testing
+## 11. Testing
 
 - Unit tests need no network and no database.
 - Mock provider HTTP calls with `httpx.MockTransport` and recorded fixture responses stored under `backend/tests/fixtures/`.
@@ -114,13 +122,13 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 - Each adapter test covers a successful response, a malformed response, a rate-limit response, and a timeout.
 - Fixtures are deterministic: no current time, no random values.
 
-## 11. Security
+## 12. Security
 
 - Secrets come from environment variables only, and appear in `.env.example` as empty or placeholder values.
 - Use HTTPS for all provider connections.
 - Treat provider responses as untrusted input.
 
-## 12. Quality Checks
+## 13. Quality Checks
 
 Run from `backend/` before reporting a task as complete:
 

@@ -12,6 +12,7 @@ command line or another process.
 """
 
 import logging
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,6 +30,12 @@ from app.models.enums import (
     ExecutionTrigger,
     JobKind,
     ObservationType,
+)
+from app.monitoring.metrics import (
+    COLLECTOR_DURATION,
+    COLLECTOR_RECORDS,
+    COLLECTOR_RUNNING,
+    COLLECTOR_RUNS,
 )
 from app.providers.factory import ProviderFactory
 from app.repositories.collection_jobs import (
@@ -283,6 +290,8 @@ class RunHandle:
         """Collect, record the outcome, and release the job's lock."""
         runner = self._runner
         name = self.job.name
+        started = time.perf_counter()
+        COLLECTOR_RUNNING.labels(name).inc()
         try:
             try:
                 outcome = await runner._collect(self.job, self._provider, self._symbols)
@@ -313,10 +322,15 @@ class RunHandle:
                 )
                 await session.commit()
         finally:
+            COLLECTOR_RUNNING.labels(name).dec()
             try:
                 await _unlock(self._connection, name)
             finally:
                 await self._connection.close()
+
+        COLLECTOR_RUNS.labels(name, self.job.kind.value, self.trigger.value, status.value).inc()
+        COLLECTOR_DURATION.labels(name).observe(time.perf_counter() - started)
+        COLLECTOR_RECORDS.labels(name).inc(written)
 
         log = logger.info if status is CollectorStatus.SUCCESS else logger.warning
         log(

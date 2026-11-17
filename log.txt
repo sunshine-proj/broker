@@ -394,6 +394,41 @@ Indicators aren't checked for staleness.
 
 
 
+Phase 10 is done: all 13 roadmap tasks are ticked. 559 tests pass, Ruff is clean, and all 11 alert rules pass their unit tests. Prometheus and Alertmanager are running live alongside the rest of the stack, all healthy, and no alerts are firing.
+
+What's running
+Metrics: the backend now serves Prometheus metrics at http://localhost:8000/metrics. A scrape takes about 90 ms.
+API: requests, errors and latency, labelled by route template (/api/v1/indicators/{code}), never the raw path.
+Providers: requests by outcome (success, rate limited, timeout and so on), latency, retries, time waiting for the rate limiter, and requests refused for lack of budget.
+Collectors: runs by job and status, duration, records written.
+Read from the database at each scrape: database availability, provider health, each job's last outcome and last success, data age, and open data-quality issues. These include runs started from the command line, which the in-process counters can't see.
+Prometheus (localhost:9090) scrapes the backend, itself and Alertmanager every 30 seconds.
+Alerts: 11 rules, each explained with a suggested action in docs/monitoring.md.
+critical: backend down, database down, a job not succeeding for twice its interval plus an hour, provider down.
+warning: a monitoring target down, API error rate high, a job's last run failed, provider degraded, rate limited or out of budget, stale data.
+Alertmanager (localhost:9093) groups the alerts, and holds back collection and freshness alerts while the database is down.
+Grafana: a Prometheus datasource and three new dashboards: System Monitoring, Provider Availability and Collection Failures. Every query on all 14 dashboards runs through Grafana; I haven't looked at the new ones in a browser.
+Checks: scripts/check_monitoring.sh validates both configurations and runs the alert-rule tests, using the same images as Compose. I added it to the CI workflow, which still has never run because this isn't a git repository.
+Problems found along the way
+FRED would have alerted for ever: an old failed call left FRED marked down, even though all its jobs are disabled. Provider metrics now cover only providers with an enabled job.
+Wrong route labels: this FastAPI version keeps each route's path relative to its router, so requests were labelled /health instead of /api/v1/health. The middleware now rebuilds the full template.
+Job label clash: Prometheus reserves the job label for the scrape target, so job names are labelled job_name.
+Not verified live
+No alert has actually fired end to end. Each rule is proven by its unit test, and live I confirmed the rules load and Prometheus has found Alertmanager. Firing one for real would mean stopping the database or a provider. I didn't do that on your running stack, because Binance's minute prices missed during an outage can't be backfilled.
+
+Decision for you
+Notifications: no notification channel is set up yet, so alerts are visible in Alertmanager, Prometheus and the dashboards but nobody is notified. docs/monitoring.md shows how to add email or a webhook; that needs your address or endpoint.
+Exposure: Prometheus and Alertmanager have no login, so they're bound to localhost only.
+Changes to your setup
+New ports: PROMETHEUS_PORT (9090), ALERTMANAGER_PORT (9093), and PROMETHEUS_RETENTION (15 days) are in .env and .env.example.
+New volumes: prometheus_data and alertmanager_data.
+New dependency: prometheus-client 0.26.0.
+
+
+
+
+===========================================
+
 
 
 

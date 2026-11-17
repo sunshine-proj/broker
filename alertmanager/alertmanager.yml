@@ -1,0 +1,23 @@
+# Alertmanager configuration (PRD FR-013). See docs/monitoring.md, "Notifications".
+#
+# No notification channel is set up: alerts are listed in Alertmanager
+# (http://localhost:9093), Prometheus and Grafana. To be notified, add a
+# receiver below (email_configs, webhook_configs, slack_configs, ...) and point
+# the route at it. Keep secrets out of this file: use the *_file options
+# (for example auth_password_file) with a file mounted into the container.
+route:
+  receiver: default
+  group_by: [alertname, provider, job_name]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default
+
+# While the database is down, the collection and freshness alerts it causes
+# say nothing new.
+inhibit_rules:
+  - source_matchers: [alertname="DatabaseDown"]
+    target_matchers:
+      - alertname=~"CollectorJobFailed|CollectorJobNotSucceeding|ProviderDown|ProviderDegraded|DataStale"

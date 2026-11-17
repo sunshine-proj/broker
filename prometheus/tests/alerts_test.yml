@@ -1,0 +1,166 @@
+# Unit tests of the alert rules: promtool test rules (scripts/check_monitoring.sh).
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="backend", instance="backend:8000"}'
+        values: "1 1 0x10"
+      - series: 'up{job="alertmanager", instance="alertmanager:9093"}'
+        values: "1x10"
+      - series: 'marketdata_database_up{job="backend", instance="backend:8000"}'
+        values: "1 0x5"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: BackendDown
+      - eval_time: 5m
+        alertname: BackendDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: backend, instance: "backend:8000"}
+            exp_annotations:
+              summary: The backend is not answering Prometheus.
+              description: >-
+                backend:8000 has not been scraped for 2 minutes. Collection and the API are
+                down, and every alert based on backend metrics is blind.
+      - eval_time: 3m
+        alertname: DatabaseDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: backend, instance: "backend:8000"}
+            exp_annotations:
+              summary: The backend cannot reach the database.
+              description: >-
+                The backend could not read the database for 1 minute. Collection fails and the
+                API answers with errors.
+      - eval_time: 10m
+        alertname: MonitoringTargetDown
+
+  - interval: 1m
+    input_series:
+      - series: 'marketdata_job_failed{job="backend", job_name="ecb_daily_quotes", kind="quotes", market_hours="false"}'
+        values: "0 0 1 1 1"
+      - series: 'marketdata_job_failed{job="backend", job_name="coingecko_quotes", kind="quotes", market_hours="false"}'
+        values: "0x4"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CollectorJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: backend
+              job_name: ecb_daily_quotes
+              kind: quotes
+              market_hours: "false"
+            exp_annotations:
+              summary: Job ecb_daily_quotes failed.
+              description: >-
+                The last run of ecb_daily_quotes (quotes) failed. Its error is on the Collection
+                Failures dashboard and in `python -m app.cli jobs`.
+
+  # A 15-minute job that last succeeded at time 0 is overdue after 2 x 15 min + 1 h = 90 min.
+  - interval: 1m
+    input_series:
+      - series: 'marketdata_job_last_success_timestamp_seconds{job="backend", job_name="binance_quotes", kind="quotes", market_hours="false"}'
+        values: "0x120"
+      - series: 'marketdata_job_expected_interval_seconds{job="backend", job_name="binance_quotes", kind="quotes", market_hours="false"}'
+        values: "900x120"
+      - series: 'marketdata_job_last_success_timestamp_seconds{job="backend", job_name="twelve_data_listed_quotes", kind="quotes", market_hours="true"}'
+        values: "0x120"
+      - series: 'marketdata_job_expected_interval_seconds{job="backend", job_name="twelve_data_listed_quotes", kind="quotes", market_hours="true"}'
+        values: "900x120"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: CollectorJobNotSucceeding
+      - eval_time: 100m
+        alertname: CollectorJobNotSucceeding
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: backend
+              job_name: binance_quotes
+              kind: quotes
+              market_hours: "false"
+            exp_annotations:
+              summary: Job binance_quotes has not succeeded for a long time.
+              description: >-
+                binance_quotes last succeeded 1h 40m 0s ago, more than twice its interval plus
+                an hour.
+
+  - interval: 1m
+    input_series:
+      - series: 'marketdata_provider_health_status{job="backend", provider="ecb"}'
+        values: "0 2x10"
+      - series: 'marketdata_provider_health_status{job="backend", provider="fred"}'
+        values: "1x70"
+      - series: 'marketdata_stale_series{job="backend", provider="binance"}'
+        values: "0 3x40"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ProviderDown
+      - eval_time: 7m
+        alertname: ProviderDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: backend, provider: ecb}
+            exp_annotations:
+              summary: Provider ecb is down.
+              description: >-
+                Three or more calls to ecb failed in a row. Its last error is on the Provider
+                Availability dashboard.
+      - eval_time: 61m
+        alertname: ProviderDegraded
+        exp_alerts:
+          - exp_labels: {severity: warning, job: backend, provider: fred}
+            exp_annotations:
+              summary: Provider fred has been failing intermittently for an hour.
+              description: Calls to fred keep failing now and then.
+      - eval_time: 20m
+        alertname: DataStale
+      - eval_time: 35m
+        alertname: DataStale
+        exp_alerts:
+          - exp_labels: {severity: warning, job: backend, provider: binance}
+            exp_annotations:
+              summary: Data from binance is stale.
+              description: >-
+                3 series from binance have nothing newer than their job allows. They are listed
+                on the Data Quality dashboard.
+
+  - interval: 1m
+    input_series:
+      - series: 'marketdata_provider_requests_total{job="backend", provider="twelve_data", outcome="rate_limited"}'
+        values: "0 1 2 3 4 5 6 7 8 9 10"
+      - series: 'marketdata_provider_budget_refusals_total{job="backend", provider="coingecko"}'
+        values: "0 0 0 1 1 1 1 1 1 1 1"
+      - series: 'marketdata_http_requests_total{job="backend", method="GET", route="/api/v1/prices/latest", status="200"}'
+        values: "0+10x30"
+      - series: 'marketdata_http_requests_total{job="backend", method="GET", route="/api/v1/prices/latest", status="500"}'
+        values: "0+2x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProviderRateLimited
+        exp_alerts:
+          - exp_labels: {severity: warning, job: backend, provider: twelve_data, outcome: rate_limited}
+            exp_annotations:
+              summary: Provider twelve_data is rate limiting requests.
+              description: >-
+                twelve_data answered HTTP 429 10 times in the last hour. Check its quota and the
+                jobs' intervals.
+      - eval_time: 10m
+        alertname: ProviderBudgetExhausted
+        exp_alerts:
+          - exp_labels: {severity: warning, job: backend, provider: coingecko}
+            exp_annotations:
+              summary: The rate budget of coingecko ran out.
+              description: >-
+                The rate limiter refused requests to coingecko in the last hour, normally
+                because a daily or monthly quota is used up.
+      - eval_time: 20m
+        alertname: ApiErrorRateHigh
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: More than 5 % of API requests are failing.
+              description: >-
+                16.67% of API requests answered with a server error over the last 5 minutes.

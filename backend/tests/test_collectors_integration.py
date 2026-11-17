@@ -14,6 +14,7 @@ from datetime import UTC, datetime, time, timedelta
 import httpx
 import pytest
 import sqlalchemy as sa
+from prometheus_client import REGISTRY
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.collectors.runner import (
@@ -183,6 +184,30 @@ async def world(
 
 
 # --- Running jobs ---------------------------------------------------------------------------
+
+
+async def test_runs_are_counted_in_the_metrics(world: World) -> None:
+    def sample(name: str, **labels: str) -> float:
+        return REGISTRY.get_sample_value(name, labels) or 0.0
+
+    run = {"job_name": "all_quotes", "kind": "quotes", "trigger": "scheduled"}
+    before = (
+        sample("marketdata_collector_runs_total", **run, status="success"),
+        sample("marketdata_collector_runs_total", **run, status="failed"),
+        sample("marketdata_collector_records_written_total", job_name="all_quotes"),
+    )
+
+    await world.runner().run("all_quotes", ExecutionTrigger.SCHEDULED)
+    world.api.status = 503
+    await world.runner().run("all_quotes", ExecutionTrigger.SCHEDULED)
+
+    assert (
+        sample("marketdata_collector_runs_total", **run, status="success"),
+        sample("marketdata_collector_runs_total", **run, status="failed"),
+        sample("marketdata_collector_records_written_total", job_name="all_quotes"),
+    ) == (before[0] + 1, before[1] + 1, before[2] + 2)
+    assert sample("marketdata_collector_running", job_name="all_quotes") == 0
+    assert sample("marketdata_collector_run_duration_seconds_count", job_name="all_quotes") >= 2
 
 
 async def test_successful_run_is_recorded(world: World) -> None:

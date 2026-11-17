@@ -327,6 +327,7 @@ Initial dashboards:
 - Collector Monitoring
 - Commodities (delivered in Phase 8, together with commodity data)
 - Data Quality (delivered in Phase 9)
+- System Monitoring, Provider Availability and Collection Failures (delivered in Phase 10, from Prometheus and the database)
 
 ### FR-009: Monitoring
 
@@ -376,6 +377,36 @@ Checks run on a schedule (a `quality` job in the seed file, every 15 minutes by 
 - Issues are readable through `GET /api/v1/quality/issues` and the Data Quality dashboard.
 
 Collection latency is reported per provider and kind of data: the delay between a value's own timestamp and its storage, and each job run's duration.
+
+### FR-013: Metrics and Alerting
+
+The backend exposes Prometheus metrics at `GET /metrics` (text exposition format, no authentication; it contains no credentials and is not under `/api/v1`, because it is not part of the data API).
+
+| Area | Metrics |
+| --- | --- |
+| API | Requests by method, route template and status; request duration by method and route |
+| Providers | Requests by provider and outcome (`success`, `rate_limited`, `server_error`, `client_error`, `auth_error`, `timeout`, `connection_error`), request duration, retries, time spent waiting for the rate limiter, requests refused by the rate budget |
+| Collectors | Runs by job, kind, trigger and status; run duration; records written; runs in progress |
+| From the database, read at each scrape | Database availability; the health status and consecutive failures of each provider in use (enabled, with an enabled job); each enabled job's last outcome, last success and expected interval; age of the newest data per provider, asset type and observation type; open data-quality issues by kind, and stale series per provider |
+| Process | CPU, memory, open files and garbage collection of the backend process |
+
+Counters and histograms cover the backend process, so runs started from the command line appear only in the database-derived metrics.
+
+Prometheus scrapes the backend, itself and Alertmanager, and evaluates the alert rules. Alertmanager groups and routes alerts. No notification channel is configured by default: alerts are visible in Prometheus, Alertmanager and Grafana, and a receiver (email, webhook, chat) is added in the Alertmanager configuration.
+
+| Alert | Fires when | Severity |
+| --- | --- | --- |
+| `BackendDown` | Prometheus cannot scrape the backend for 2 minutes | critical |
+| `DatabaseDown` | The backend cannot reach the database for 1 minute | critical |
+| `MonitoringTargetDown` | Another scrape target is down for 5 minutes | warning |
+| `ApiErrorRateHigh` | More than 5 % of API requests fail with 5xx for 10 minutes | warning |
+| `CollectorJobFailed` | A job's last run failed | warning |
+| `CollectorJobNotSucceeding` | A job that does not follow market hours has had no successful run for twice its interval plus an hour | critical |
+| `ProviderDown` | A provider's health is `down` for 5 minutes | critical |
+| `ProviderDegraded` | A provider's health is `degraded` for an hour | warning |
+| `ProviderRateLimited` | A provider answered HTTP 429 more than 3 times in an hour | warning |
+| `ProviderBudgetExhausted` | The rate limiter refused a request because the provider's budget was exhausted | warning |
+| `DataStale` | A provider has stale series (FR-012) for 30 minutes | warning |
 
 ## 6. Non-Functional Requirements
 

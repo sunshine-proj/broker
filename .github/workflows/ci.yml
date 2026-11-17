@@ -46,3 +46,9 @@ jobs:
 
       - name: Lint, format check and tests
         run: scripts/check.sh
+
+      - name: Prometheus and Alertmanager configuration, alert rule tests
+        run: scripts/check_monitoring.sh
+
+      - name: Dashboards match their generator
+        run: python scripts/build_dashboards.py --check

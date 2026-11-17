@@ -40,9 +40,11 @@ def panels(board: dict[str, Any]) -> Iterator[dict[str, Any]]:
 
 
 def queries(board: dict[str, Any]) -> Iterator[tuple[str, str]]:
+    """The SQL queries; Prometheus queries are checked by scripts/check_dashboards.py."""
     for item in panels(board):
         for target in item.get("targets", []):
-            yield item["title"], target["rawSql"]
+            if "rawSql" in target:
+                yield item["title"], target["rawSql"]
 
 
 # --- Structure ---------------------------------------------------------------------------
@@ -75,6 +77,9 @@ def test_every_dashboard_in_the_prd_exists() -> None:
         "Collector Monitoring",
         "Commodities",
         "Data Quality",
+        "System Monitoring",
+        "Provider Availability",
+        "Collection Failures",
     }
 
 
@@ -91,7 +96,8 @@ def test_dashboard_structure(board: dict[str, Any]) -> None:
         position = item["gridPos"]
         assert position["x"] + position["w"] <= 24
         for target in item.get("targets", []):
-            assert target["datasource"]["uid"] == "marketdata"
+            assert target["datasource"]["uid"] in ("marketdata", "prometheus")
+            assert ("rawSql" in target) != ("expr" in target)
     # Every dashboard shows how current its data is.
     assert any("freshness" in item["title"].lower() for item in panels(board))
 
@@ -148,7 +154,7 @@ def test_dashboards_show_the_attribution_their_providers_require(
 def test_market_dashboards_have_variables() -> None:
     without = {b["uid"] for b in boards() if not b["templating"]["list"]}
 
-    assert without == {"collector-monitoring"}
+    assert without == {"collector-monitoring", "system-monitoring"}
 
 
 def test_series_keep_providers_apart() -> None:
@@ -158,7 +164,7 @@ def test_series_keep_providers_apart() -> None:
             if item["type"] != "timeseries":
                 continue
             for target in item.get("targets", []):
-                if "FROM v_observation" in target["rawSql"]:
+                if "FROM v_observation" in target.get("rawSql", ""):
                     assert "|| ' · ' || provider AS metric" in target["rawSql"], (
                         board["uid"],
                         item["title"],
@@ -264,3 +270,53 @@ async def test_reader_role_setup_is_repeatable_and_validated(
             await ensure_reader_role(connection, TEST_ROLE, "")
 
     assert await reader.fetchval("SELECT count(*) FROM v_provider_status") == 2
+
+
+PROMETHEUS_METRICS = {
+    "up",
+    "ALERTS",
+    "process_resident_memory_bytes",
+    "process_cpu_seconds_total",
+    "marketdata_database_up",
+    "marketdata_http_requests_total",
+    "marketdata_http_request_duration_seconds_bucket",
+    "marketdata_provider_health_status",
+    "marketdata_provider_requests_total",
+    "marketdata_provider_request_duration_seconds_bucket",
+    "marketdata_provider_retries_total",
+    "marketdata_provider_budget_refusals_total",
+    "marketdata_provider_rate_limiter_wait_seconds_total",
+    "marketdata_collector_runs_total",
+    "marketdata_job_last_success_timestamp_seconds",
+    "marketdata_job_expected_interval_seconds",
+}
+
+
+_METRIC_NAME = re.compile(r"\b(?:marketdata_\w+|process_\w+|up|ALERTS)\b")
+
+
+def test_prometheus_queries_use_metrics_the_platform_exposes() -> None:
+    """A renamed metric must not leave a dashboard querying nothing."""
+    import app.api.metrics  # noqa: F401  (defines the process metrics)
+    from app.monitoring import database_metrics
+
+    used = {
+        name
+        for board in boards()
+        for item in panels(board)
+        for target in item.get("targets", [])
+        if "expr" in target
+        for name in _METRIC_NAME.findall(target["expr"])
+    }
+    assert used == PROMETHEUS_METRICS
+
+    # Every marketdata metric is defined by the backend: in the process registry
+    # (counters as <name>_total, histograms as <name>_bucket) or the database ones.
+    from prometheus_client import REGISTRY
+
+    defined = set()
+    for family in REGISTRY.collect():
+        defined |= {family.name, f"{family.name}_total", f"{family.name}_bucket"}
+    snapshot = database_metrics.render(database_metrics.DatabaseSnapshot()).decode()
+    defined |= {line.split()[2] for line in snapshot.splitlines() if line.startswith("# TYPE")}
+    assert {name for name in used if name.startswith("marketdata_")} <= defined

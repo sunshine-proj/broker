@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import random
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -21,6 +22,13 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
+from app.monitoring.metrics import (
+    PROVIDER_BUDGET_REFUSALS,
+    PROVIDER_DURATION,
+    PROVIDER_LIMITER_WAIT,
+    PROVIDER_REQUESTS,
+    PROVIDER_RETRIES,
+)
 from app.providers.errors import (
     ProviderAuthError,
     ProviderConfigurationError,
@@ -28,6 +36,7 @@ from app.providers.errors import (
     ProviderRateLimitedError,
     ProviderResponseError,
     ProviderUnavailableError,
+    RateBudgetExceededError,
 )
 from app.providers.rate_limit import RateLimiter
 from app.schemas.provider_config import AuthType, ProviderSettings
@@ -116,24 +125,36 @@ class ProviderHttpClient:
         attempts = self._settings.max_retries + 1
 
         for attempt in range(attempts):
-            await self._limiter.acquire(cost)
+            waiting = time.perf_counter()
+            try:
+                await self._limiter.acquire(cost)
+            except RateBudgetExceededError:
+                PROVIDER_BUDGET_REFUSALS.labels(self.provider).inc()
+                raise
+            PROVIDER_LIMITER_WAIT.labels(self.provider).inc(time.perf_counter() - waiting)
             error: ProviderError
+            started = time.perf_counter()
             try:
                 response = await self._http.get(
                     url, params=query, headers=headers, timeout=self._settings.timeout_seconds
                 )
             except httpx.TimeoutException:
                 error = ProviderUnavailableError(self.provider, "request timed out")
+                outcome = "timeout"
             except httpx.TransportError as exc:
                 # The exception text is not used: it can contain the request URL.
                 error = ProviderUnavailableError(
                     self.provider, f"connection failed ({type(exc).__name__})"
                 )
+                outcome = "connection_error"
             else:
                 failure = self._classify(response)
+                outcome = _outcome(failure)
                 if failure is None:
+                    self._observe(outcome, started)
                     return response
                 error = failure
+            self._observe(outcome, started)
 
             if isinstance(error, ProviderRateLimitedError):
                 error.retry_after = self._reset_in(error)
@@ -143,6 +164,7 @@ class ProviderHttpClient:
             delay = self._retry_delay(error, attempt)
             if delay is None or attempt == attempts - 1:
                 raise error
+            PROVIDER_RETRIES.labels(self.provider).inc()
             logger.warning(
                 "Provider request failed; retrying",
                 extra={
@@ -156,6 +178,10 @@ class ProviderHttpClient:
             await self._sleep(delay)
 
         raise AssertionError("unreachable")  # pragma: no cover
+
+    def _observe(self, outcome: str, started: float) -> None:
+        PROVIDER_REQUESTS.labels(self.provider, outcome).inc()
+        PROVIDER_DURATION.labels(self.provider).observe(time.perf_counter() - started)
 
     def _authenticate(self, params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
         auth = self._settings.auth
@@ -227,6 +253,19 @@ class ProviderHttpClient:
                 return None
             delay = max(delay, error.retry_after)
         return delay
+
+
+def _outcome(failure: ProviderError | None) -> str:
+    """The metrics outcome of a response the provider sent."""
+    if failure is None:
+        return "success"
+    if isinstance(failure, ProviderRateLimitedError):
+        return "rate_limited"
+    if isinstance(failure, ProviderUnavailableError):
+        return "server_error"
+    if isinstance(failure, ProviderAuthError):
+        return "auth_error"
+    return "client_error"
 
 
 def _parse_retry_after(value: str | None) -> float | None:

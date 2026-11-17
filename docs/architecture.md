@@ -382,10 +382,11 @@ router (app/api/v1)          parses and validates query parameters
 
 ## Grafana
 
-Grafana reads the database directly, through reporting views, as a read-only role. It never writes and never calls the API.
+Grafana reads the database directly, through reporting views, as a read-only role, and Prometheus for the monitoring dashboards. It never writes and never calls the API.
 
 ```text
-grafana/provisioning/datasources   -> datasource "Market Data" (uid marketdata), as GRAFANA_DB_USER
+grafana/provisioning/datasources   -> datasource "Market Data" (uid marketdata), as GRAFANA_DB_USER,
+                                      and "Prometheus" (uid prometheus)
 grafana/provisioning/dashboards    -> loads grafana/dashboards/*.json into the "Market Data" folder
 scripts/build_dashboards.py        -> generates grafana/dashboards/*.json
 ```
@@ -466,6 +467,23 @@ The Compose health check for the backend calls this endpoint.
 ## Logging
 
 Each log line is a JSON object with `timestamp` (UTC), `level`, `logger` and `message`. Fields passed through `extra=` are added as top-level keys, and exceptions appear under `exception`. Set `LOG_FORMAT=text` for plain lines during local development.
+
+## Monitoring
+
+Specified in PRD FR-013; operated as described in [monitoring.md](monitoring.md).
+
+| Part | Where |
+| --- | --- |
+| Process metrics: counters, histograms, gauges in prometheus_client's default registry | `app/monitoring/metrics.py`, updated in the API middleware (`app/main.py`), `ProviderHttpClient._get` and `RunHandle.execute` |
+| Platform state read from the database at each scrape | `app/monitoring/database_metrics.py`: a snapshot rendered through its own registry, so nothing stale is left behind |
+| `GET /metrics` | `app/api/metrics.py`. Outside `/api/v1`, not in the OpenAPI schema. If the database cannot be read within 10 seconds, it reports `marketdata_database_up 0` and still answers. |
+| Prometheus, alert rules and their tests | `prometheus/` |
+| Alertmanager | `alertmanager/` |
+
+- **Route labels:** the API middleware labels requests by route template, never by raw path, so path parameters cannot multiply series. The template is rebuilt from the request path's router prefixes and the matched route's own template, because FastAPI keeps routes relative to their router.
+- **Label names:** job names are labelled `job_name`; Prometheus reserves `job` for the scrape target.
+- **Scope:** the process metrics cover the backend process only. Runs from the command line reach Prometheus through the database-derived job metrics.
+- **Checks:** `scripts/check_monitoring.sh` runs `promtool check config`, `promtool test rules` and `amtool check-config` in the images Compose uses; CI runs it too. A test checks that every metric the dashboards query is one the backend defines.
 
 ## Testing
 

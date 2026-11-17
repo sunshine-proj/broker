@@ -21,6 +21,7 @@ from typing import Any
 OUTPUT = Path(__file__).resolve().parents[1] / "grafana" / "dashboards"
 
 DATASOURCE = {"type": "grafana-postgresql-datasource", "uid": "marketdata"}
+PROMETHEUS = {"type": "prometheus", "uid": "prometheus"}
 TAG = "market-data"
 SCHEMA_VERSION = 41
 
@@ -78,6 +79,66 @@ def target(query: str, fmt: str = "table", ref: str = "A") -> dict[str, Any]:
         "rawQuery": True,
         "rawSql": sql(query),
     }
+
+
+def prom(expr: str, legend: str = "", *, instant: bool = False, ref: str = "A") -> dict[str, Any]:
+    """A Prometheus query: a range for charts, or an instant value for tables and stats."""
+    return {
+        "refId": ref,
+        "datasource": PROMETHEUS,
+        "editorMode": "code",
+        "expr": " ".join(expr.split()),
+        "legendFormat": legend or "__auto",
+        "range": not instant,
+        "instant": instant,
+        "format": "table" if instant else "time_series",
+    }
+
+
+def prom_chart(title: str, *queries: dict[str, Any], **kwargs: Any) -> Panel:
+    """A time series chart of Prometheus queries."""
+    kwargs.setdefault(
+        "custom", {"lineWidth": 1, "fillOpacity": 0, "showPoints": "never"}
+    )
+    kwargs.setdefault(
+        "options",
+        {
+            "legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull"]},
+            "tooltip": {"mode": "multi", "sort": "desc"},
+        },
+    )
+    item = panel("timeseries", title, list(queries), **kwargs)
+    item["datasource"] = PROMETHEUS
+    return item
+
+
+def prom_stat(title: str, *queries: dict[str, Any], **kwargs: Any) -> Panel:
+    kwargs.setdefault(
+        "options",
+        {
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "graphMode": "none",
+        },
+    )
+    item = panel("stat", title, list(queries), **kwargs)
+    item["datasource"] = PROMETHEUS
+    return item
+
+
+def prom_table(title: str, query: dict[str, Any], **kwargs: Any) -> Panel:
+    kwargs.setdefault("options", {"showHeader": True, "cellHeight": "sm"})
+    item = panel("table", title, [query], **kwargs)
+    item["datasource"] = PROMETHEUS
+    item["transformations"] = [
+        {
+            "id": "organize",
+            "options": {"excludeByName": {"Time": True, "__name__": True, "job": True,
+                                          "instance": True, "alertstate": True}},
+        }
+    ]
+    return item
 
 
 def thresholds(*steps: tuple[str, float | None]) -> dict[str, Any]:
@@ -1167,6 +1228,348 @@ def data_quality() -> dict[str, Any]:
     )
 
 
+UP_DOWN = [
+    {
+        "type": "value",
+        "options": {
+            "0": {"text": "Down", "color": "red", "index": 0},
+            "1": {"text": "Up", "color": "green", "index": 1},
+        },
+    }
+]
+
+HEALTH_LEVELS = [
+    {
+        "type": "value",
+        "options": {
+            "0": {"text": "healthy", "color": "green", "index": 0},
+            "1": {"text": "degraded", "color": "orange", "index": 1},
+            "2": {"text": "down", "color": "red", "index": 2},
+        },
+    }
+]
+
+STATUS_COLOURS = [
+    {
+        "type": "value",
+        "options": {
+            "healthy": {"color": "green", "index": 0},
+            "success": {"color": "green", "index": 1},
+            "degraded": {"color": "orange", "index": 2},
+            "running": {"color": "blue", "index": 3},
+            "down": {"color": "red", "index": 4},
+            "failed": {"color": "red", "index": 5},
+            "unknown": {"color": "text", "index": 6},
+        },
+    }
+]
+
+
+def firing_alerts(selector: str = "", **kwargs: Any) -> Panel:
+    matchers = 'alertstate="firing"' + (f", {selector}" if selector else "")
+    return prom_table(
+        "Firing alerts",
+        prom(f"ALERTS{{{matchers}}}", instant=True),
+        description="Alerts firing now. docs/monitoring.md explains each one.",
+        **kwargs,
+    )
+
+
+def system_monitoring() -> dict[str, Any]:
+    return dashboard(
+        "system-monitoring",
+        "System Monitoring",
+        "Availability of the backend, the database and the monitoring stack, firing alerts, "
+        "and the API's traffic, errors and latency. From Prometheus.",
+        [
+            prom_stat(
+                "Availability",
+                prom('up{job="backend"}', "Backend", ref="A"),
+                prom("marketdata_database_up", "Database", ref="B"),
+                prom('up{job="prometheus"}', "Prometheus", ref="C"),
+                prom('up{job="alertmanager"}', "Alertmanager", ref="D"),
+                height=4,
+                width=16,
+                mappings=UP_DOWN,
+                description="Up means Prometheus could scrape it; the database is up when "
+                "the backend could read it.",
+            ),
+            prom_stat(
+                "Firing alerts",
+                prom('count(ALERTS{alertstate="firing"}) or vector(0)', "Firing"),
+                height=4,
+                width=8,
+                custom=None,
+                overrides=[],
+            ),
+            firing_alerts(height=6),
+            prom_chart(
+                "API requests per second",
+                prom("sum by (route) (rate(marketdata_http_requests_total[5m]))", "{{route}}"),
+                width=12,
+                height=8,
+                unit="reqps",
+            ),
+            prom_chart(
+                "API server errors",
+                prom(
+                    'sum(rate(marketdata_http_requests_total{status=~"5.."}[5m]))'
+                    " / sum(rate(marketdata_http_requests_total[5m]))",
+                    "5xx share",
+                ),
+                width=12,
+                height=8,
+                unit="percentunit",
+                description="ApiErrorRateHigh fires above 5 % for 10 minutes.",
+            ),
+            prom_chart(
+                "API latency, 95th percentile",
+                prom(
+                    "histogram_quantile(0.95, sum by (le, route) "
+                    "(rate(marketdata_http_request_duration_seconds_bucket[5m])))",
+                    "{{route}}",
+                ),
+                width=12,
+                height=8,
+                unit="s",
+            ),
+            prom_chart(
+                "Backend process",
+                prom('process_resident_memory_bytes{job="backend"}', "Memory", ref="A"),
+                prom('rate(process_cpu_seconds_total{job="backend"}[5m])', "CPU", ref="B"),
+                width=12,
+                height=8,
+                unit="bytes",
+                overrides=[override("CPU", unit="percentunit", custom__axisPlacement="right")],
+            ),
+            freshness(
+                "Data freshness",
+                "true",
+                warn=86400,
+                crit=4 * 86400,
+                description="Age of the newest value per provider and kind of data.",
+            ),
+        ],
+        time_from="now-6h",
+        refresh="1m",
+    )
+
+
+def provider_availability() -> dict[str, Any]:
+    selected = 'provider=~"${provider:regex}"'
+    return dashboard(
+        "provider-availability",
+        "Provider Availability",
+        "Each provider's health, requests by outcome, latency, retries and rate limiting.",
+        [
+            table(
+                "Provider health",
+                """
+                SELECT provider AS "Provider", health AS "Health",
+                       consecutive_failures AS "Failures in a row",
+                       last_success_at AS "Last success", last_error_at AS "Last error at",
+                       last_error AS "Last error"
+                  FROM v_provider_status
+                 WHERE enabled AND provider IN (${provider:sqlstring})
+                 ORDER BY provider
+                """,
+                height=7,
+                mappings=STATUS_COLOURS,
+                overrides=[override("Health", custom__cellOptions={"type": "color-text"})],
+                description="ProviderDown fires after 5 minutes down, ProviderDegraded after an "
+                "hour degraded.",
+            ),
+            prom_chart(
+                "Health over time",
+                prom(f"marketdata_provider_health_status{{{selected}}}", "{{provider}}"),
+                width=12,
+                height=8,
+                mappings=HEALTH_LEVELS,
+                custom={"lineWidth": 2, "fillOpacity": 0, "showPoints": "never",
+                        "lineInterpolation": "stepAfter"},
+                description="0 healthy, 1 degraded, 2 down.",
+            ),
+            prom_chart(
+                "Successful requests",
+                prom(
+                    f'sum by (provider) (rate(marketdata_provider_requests_total{{{selected}, '
+                    'outcome="success"}[1h])) / sum by (provider) '
+                    f"(rate(marketdata_provider_requests_total{{{selected}}}[1h]))",
+                    "{{provider}}",
+                ),
+                width=12,
+                height=8,
+                unit="percentunit",
+                description="Share of requests answered successfully over the last hour.",
+            ),
+            prom_chart(
+                "Requests by outcome",
+                prom(
+                    "sum by (provider, outcome) "
+                    f"(increase(marketdata_provider_requests_total{{{selected}}}[1h]))",
+                    "{{provider}} {{outcome}}",
+                ),
+                width=12,
+                height=8,
+                description="Requests per hour, one per attempt including retries.",
+            ),
+            prom_chart(
+                "Request latency, 95th percentile",
+                prom(
+                    "histogram_quantile(0.95, sum by (le, provider) "
+                    f"(rate(marketdata_provider_request_duration_seconds_bucket{{{selected}}}[30m])))",
+                    "{{provider}}",
+                ),
+                width=12,
+                height=8,
+                unit="s",
+            ),
+            prom_chart(
+                "Retries and rate limiting",
+                prom(
+                    f"sum by (provider) (increase(marketdata_provider_retries_total{{{selected}}}[1h]))",
+                    "{{provider}} retries",
+                    ref="A",
+                ),
+                prom(
+                    "sum by (provider) (increase("
+                    f"marketdata_provider_budget_refusals_total{{{selected}}}[1h]))",
+                    "{{provider}} refused by budget",
+                    ref="B",
+                ),
+                width=12,
+                height=8,
+                description="Per hour. A refusal means the provider's quota was used up.",
+            ),
+            prom_chart(
+                "Time waiting for the rate limiter",
+                prom(
+                    "sum by (provider) (rate("
+                    f"marketdata_provider_rate_limiter_wait_seconds_total{{{selected}}}[30m]))",
+                    "{{provider}}",
+                ),
+                width=12,
+                height=8,
+                unit="percentunit",
+                description="Share of time requests spent waiting for capacity.",
+            ),
+            freshness(
+                "Data freshness",
+                "provider IN (${provider:sqlstring})",
+                warn=86400,
+                crit=4 * 86400,
+                description="Age of the newest value per provider and kind of data.",
+            ),
+        ],
+        variables=[
+            variable(
+                "provider",
+                "Providers",
+                "SELECT name FROM provider WHERE enabled ORDER BY 1",
+            )
+        ],
+        time_from="now-24h",
+        refresh="1m",
+    )
+
+
+def collection_failures() -> dict[str, Any]:
+    selected = 'job_name=~"${job:regex}"'
+    return dashboard(
+        "collection-failures",
+        "Collection Failures",
+        "Failing jobs, their errors, and how long since each last succeeded.",
+        [
+            firing_alerts(
+                'alertname=~"Collector.*|Provider.*|DataStale|DatabaseDown"', height=6
+            ),
+            prom_chart(
+                "Failed runs per hour",
+                prom(
+                    "sum by (job_name) (increase(marketdata_collector_runs_total"
+                    f'{{{selected}, status="failed"}}[1h]))',
+                    "{{job_name}}",
+                ),
+                width=12,
+                height=8,
+                description="Runs of the backend's scheduler and API triggers; command-line "
+                "runs are in the tables below.",
+            ),
+            prom_chart(
+                "Time since last success, in intervals",
+                prom(
+                    f"(time() - marketdata_job_last_success_timestamp_seconds{{{selected}}})"
+                    f" / marketdata_job_expected_interval_seconds{{{selected}}}",
+                    "{{job_name}}",
+                ),
+                width=12,
+                height=8,
+                description="1 means one schedule interval. CollectorJobNotSucceeding fires "
+                "beyond twice the interval plus an hour (jobs outside market hours).",
+            ),
+            table(
+                "Job status",
+                """
+                SELECT job AS "Job", provider AS "Provider", kind AS "Kind",
+                       schedule AS "Schedule", last_status AS "Last status",
+                       last_finished_at AS "Last finished", last_error AS "Last error"
+                  FROM v_job_status
+                 WHERE enabled AND job IN (${job:sqlstring})
+                 ORDER BY (last_status = 'failed') DESC, job
+                """,
+                height=9,
+                mappings=STATUS_COLOURS,
+                overrides=[override("Last status", custom__cellOptions={"type": "color-text"})],
+            ),
+            table(
+                "Failures by job",
+                """
+                SELECT job AS "Job", count(*) AS "Failed runs",
+                       max(started_at) AS "Latest failure"
+                  FROM v_execution
+                 WHERE status = 'failed' AND $__timeFilter(started_at)
+                   AND job IN (${job:sqlstring})
+                 GROUP BY job
+                 ORDER BY 2 DESC
+                """,
+                width=8,
+                height=8,
+            ),
+            table(
+                "Failed runs",
+                """
+                SELECT started_at AS "Started", job AS "Job", provider AS "Provider",
+                       trigger AS "Trigger", duration_seconds AS "Duration", error AS "Error"
+                  FROM v_execution
+                 WHERE status = 'failed' AND $__timeFilter(started_at)
+                   AND job IN (${job:sqlstring})
+                 ORDER BY started_at DESC
+                 LIMIT 200
+                """,
+                width=16,
+                height=8,
+                overrides=[override("Duration", unit="s", decimals=0)],
+            ),
+            freshness(
+                "Data freshness",
+                "true",
+                warn=86400,
+                crit=4 * 86400,
+                description="Age of the newest value per provider and kind of data.",
+            ),
+        ],
+        variables=[
+            variable(
+                "job",
+                "Jobs",
+                "SELECT name FROM collection_job WHERE enabled ORDER BY 1",
+            )
+        ],
+        time_from="now-7d",
+        refresh="1m",
+    )
+
+
 def collector_monitoring() -> dict[str, Any]:
     status_colours = [
         {
@@ -1300,6 +1703,9 @@ def all_dashboards() -> list[dict[str, Any]]:
         interest_rates(),
         commodities(),
         data_quality(),
+        system_monitoring(),
+        provider_availability(),
+        collection_failures(),
         indicators(),
         collector_monitoring(),
     ]
