@@ -76,7 +76,7 @@ services:
       - -c
       - >-
         alembic upgrade head && python -m app.cli seed && python -m app.cli portfolio
-        && python -m app.cli storage-policies
+        && python -m app.cli storage-policies && python -m app.cli prune-sessions
         && python -m app.cli app-role && python -m app.cli reader-role
     restart: "no"
     environment:
@@ -122,6 +122,10 @@ services:
       SCHEDULER_ENABLED: "true"
       # Enables POST /api/v1/collectors/{job}/run when set.
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      # Sign-in (PRD FR-017).
+      SESSION_HOURS: ${SESSION_HOURS:-12}
+      LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-5}
+      LOGIN_LOCKOUT_MINUTES: ${LOGIN_LOCKOUT_MINUTES:-15}
     depends_on:
       db:
         condition: service_healthy

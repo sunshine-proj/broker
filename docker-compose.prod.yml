@@ -5,9 +5,11 @@
 # Adds the reverse proxy, the only published service. It terminates HTTPS
 # (certificates from Let's Encrypt, renewed automatically) for DOMAIN and serves:
 #
-#   https://DOMAIN/grafana/     Grafana, behind Grafana's own login (/ redirects there)
-#   https://DOMAIN/api/v1/...   the REST API, and /docs its documentation, behind HTTP
-#                               basic authentication (API_USERNAME, API_PASSWORD_HASH)
+#   https://DOMAIN/auth/login   the login page (PRD FR-017)
+#   https://DOMAIN/grafana/     Grafana (/ redirects there); the proxy asks the backend
+#                               who is signed in and passes the user on to Grafana
+#   https://DOMAIN/api/v1/...   the REST API, and /docs its documentation, for signed-in
+#                               users and API tokens
 #
 # The database, Prometheus, Alertmanager and the backend's /metrics are not
 # reachable from outside. See docs/deployment.md.
@@ -19,8 +21,6 @@ services:
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
-      API_USERNAME: ${API_USERNAME:?set API_USERNAME in .env}
-      API_PASSWORD_HASH: ${API_PASSWORD_HASH:?set API_PASSWORD_HASH in .env}
     ports:
       - "${PROXY_HTTP_PORT:-80}:80"
       - "${PROXY_HTTPS_PORT:-443}:443"
@@ -59,10 +59,28 @@ services:
         max-size: "10m"
         max-file: "5"
     networks:
-      - internal
-      - egress
+      internal:
+      egress:
+      grafana_auth:
+        # Grafana accepts the user headers from this address only.
+        ipv4_address: ${AUTH_PROXY_ADDRESS:-172.31.254.2}
+
+  backend:
+    environment:
+      # Served over HTTPS by the proxy: the session cookie is Secure.
+      SESSION_COOKIE_SECURE: "true"
+      HOME_PATH: /grafana/
 
   grafana:
+    networks:
+      internal:
+      grafana_auth:
+        # The proxy reaches Grafana by this name, on this network only, so its
+        # requests come from AUTH_PROXY_ADDRESS. Both addresses are fixed, so
+        # neither container can be handed the other's.
+        ipv4_address: ${AUTH_GRAFANA_ADDRESS:-172.31.254.3}
+        aliases:
+          - grafana-auth
     environment:
       GF_SERVER_DOMAIN: ${DOMAIN}
       GF_SERVER_ROOT_URL: https://${DOMAIN}/grafana/
@@ -70,8 +88,29 @@ services:
       GF_SECURITY_COOKIE_SECURE: "true"
       GF_SECURITY_STRICT_TRANSPORT_SECURITY: "true"
       GF_SECURITY_STRICT_TRANSPORT_SECURITY_MAX_AGE_SECONDS: "31536000"
+      # The platform's own accounts (PRD FR-017): the proxy passes the signed-in
+      # user and role; Grafana creates the user on first visit and keeps its role
+      # in step. Its own login form is off.
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_HEADERS: "Role:X-WEBAUTH-ROLE"
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: ${AUTH_PROXY_ADDRESS:-172.31.254.2}
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_SIGNOUT_REDIRECT_URL: https://${DOMAIN}/auth/logout
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/grafana/api/health || exit 1"]
+
+networks:
+  # Only the proxy and Grafana, with fixed addresses (see GF_AUTH_PROXY_WHITELIST).
+  # Change AUTH_PROXY_SUBNET, AUTH_PROXY_ADDRESS and AUTH_GRAFANA_ADDRESS together
+  # if the range is taken.
+  grafana_auth:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${AUTH_PROXY_SUBNET:-172.31.254.0/29}
 
 volumes:
   caddy_data:

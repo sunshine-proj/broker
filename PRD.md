@@ -235,7 +235,7 @@ Instrument configuration includes:
 - Provider mapping (the symbol each provider uses for the instrument)
 - Enabled/disabled status
 
-The REST API exposes this configuration read-only in the initial release. Write endpoints are not provided, because they would require user authentication, which is deferred to Phase 12.
+The REST API exposes this configuration read-only. Write endpoints for instruments are not provided: instruments are managed in the seed file.
 
 ### FR-005: Provider Management
 
@@ -292,9 +292,9 @@ Analytics, lists and portfolios (FR-014 to FR-016, Phase 12):
 
 `/indicators/{code}/observations` returns an indicator's history, current values or every revision. `/collectors/executions` returns the run history, newest first.
 
-`GET` endpoints are unauthenticated and rely on the service being bound to a trusted interface (loopback by default).
+Every endpoint except `GET /health` requires an authenticated user (FR-017), as does the API documentation (`/docs`, `/openapi.json`). Endpoints to sign in and out, and `GET /auth/me`, are described in FR-017.
 
-`POST /collectors/{job}/run` triggers a manual collection. It requires the `X-API-Key` header to match the `ADMIN_API_KEY` environment variable, and is disabled when that variable is unset.
+`POST /collectors/{job}/run` triggers a manual collection. It requires an authenticated user and the `X-API-Key` header to match the `ADMIN_API_KEY` environment variable, and is disabled when that variable is unset.
 
 #### API Conventions
 
@@ -456,7 +456,20 @@ Tracks the value of holdings; it does not trade, rebalance or recommend.
 - **Holdings** come from a private file, `PORTFOLIO_FILE` (default `portfolio/portfolio.toml` in the repository, git-ignored and never committed; in Docker, the directory `PORTFOLIO_DIR` mounted read-only into `migrate`), loaded at every start. A missing file means no portfolios. Stocks, ETFs, cryptocurrencies and commodities can be held. Each portfolio has a name and a base currency. Each holding has an instrument, the provider whose prices value it, a quantity, a cost basis in a stated currency, and an optional acquisition date. A holding is valued from its acquisition date on. Holdings are positions, not transactions: a sale is recorded by changing the file.
 - **Valuation:** every calendar day, each holding at its newest daily close at or before that day (at most 7 days older), converted into the base currency as in FR-014. The cost basis is converted at the rate of its acquisition date, or of its first valued day.
 - **Reported:** value and cost per holding and in total, unrealised profit or loss, weights, and the portfolio's daily value history.
-- Everyone who can see the Portfolio dashboard or call the API sees the holdings.
+- Every signed-in user who can see the Portfolio dashboard or call the API sees the holdings.
+
+### FR-017: Authentication
+
+Only authenticated users can use the platform: the REST API, its documentation and Grafana. Added 2026-11-17, replacing the shared basic-auth account of the production API.
+
+- **Accounts** are kept in the database and created by an administrator with the command line (`python -m app.cli user ...`). There is no self sign-up. Each has a unique user name, a password, a role (`viewer` or `admin`) and an enabled flag. Disabling an account ends its sessions and tokens at once.
+- **Passwords** are at least 12 characters, stored as scrypt hashes with a random salt, never in plain text and never logged.
+- **Signing in:** a login page at `/auth/login`. A successful login starts a session: a random token in an HTTP-only, `SameSite=Lax` cookie (also `Secure` behind HTTPS; forms reject posts from other sites), stored only as a hash, valid for `SESSION_HOURS` (12 by default). `/auth/logout` ends it. After `LOGIN_MAX_FAILURES` (5) consecutive failed logins an account is locked for `LOGIN_LOCKOUT_MINUTES` (15); the answer does not say whether the user name exists.
+- **Scripts** use personal API tokens, sent as `Authorization: Bearer <token>`. An administrator issues them with the command line; each belongs to an account, has a name and an optional expiry, is shown once and stored only as a hash, and can be revoked.
+- **Unauthenticated requests:** the API answers 401 with the standard error shape (`authentication_required`); pages (the documentation, Grafana) redirect to the login page and back afterwards.
+- **Not authenticated:** `GET /api/v1/health` (container health checks) and `/metrics` (scraped by Prometheus on the internal network; never published in production).
+- **Grafana** uses the same accounts in production: the reverse proxy asks the backend (`/auth/verify`) about every Grafana request and passes the user name and role on; Grafana accepts these headers only from the proxy's address. An `admin` is a Grafana administrator of the organisation, a `viewer` a viewer. Grafana's own login form is disabled. In development, where there is no proxy, Grafana keeps its own administrator login, on the loopback interface only.
+- **Roles:** both roles can read everything. `admin` is needed for Grafana administration; the manual collection trigger needs `ADMIN_API_KEY` as before (FR-006).
 
 ## 6. Non-Functional Requirements
 
@@ -503,7 +516,7 @@ How the deployment meets these (Phase 11; operated as in docs/deployment.md):
 - **Secrets** are environment variables from a `.env` file that is never committed, readable by its owner only. The repository ships no passwords; `scripts/generate_env.py` creates random ones and `scripts/check_env.py` refuses a production `.env` with empty, short, reused or placeholder secrets.
 - **Database roles:** the running backend connects as its own role, which can read, insert and update but not delete, truncate or change the schema. Grafana's role can only read. Migrations, the seed file, backups and the command line use the owner. The restricted roles are recreated with exactly these privileges on every start.
 - **Network:** the database and Prometheus are on a network with no route outside. In production, the only published ports are the reverse proxy's 80 and 443, with HTTPS from Let's Encrypt and HSTS.
-- **Exposure:** in production Grafana is served behind its own login, with sign-up, anonymous access and public or external sharing disabled. The REST API is served behind HTTP basic authentication: the providers' licences do not allow redistributing their data, so the API is for the people given its credentials. `/metrics`, Prometheus and Alertmanager are not published. User accounts for the API remain Phase 12.
+- **Exposure:** the REST API, its documentation and Grafana need a signed-in user (FR-017): the providers' licences do not allow redistributing their data, so the platform is for the people given accounts. Grafana has sign-up, anonymous access and public or external sharing disabled. `/metrics`, Prometheus and Alertmanager are not published.
 - **Containers** have memory and CPU limits, rotated logs, `no-new-privileges`, and, where the image allows, no capabilities and a read-only root filesystem.
 
 ### Backups
@@ -746,6 +759,10 @@ FR-016. **Portfolio:** `id`, `name` (unique), `base_currency`, `loaded_at`. **Po
 
 A continuous aggregate of market observations (FR-014): `instrument_id`, `provider_id`, `observation_type`, `day`, `open`, `high`, `low`, `close`, `observations`, `currency`, `unit`. Price-like observation types only.
 
+#### User, User Session and API Token
+
+FR-017. **User** (`app_user`): `id`, `username` (unique, lower case), `password_hash`, `role` (`viewer`, `admin`), `enabled`, `failed_logins`, `locked_until`, `last_login_at`, `created_at`. **User Session** (`user_session`): `id`, `user_id`, `token_hash` (unique), `created_at`, `expires_at`, `revoked_at`. **API Token** (`api_token`): `id`, `user_id`, `name`, `token_hash` (unique), `created_at`, `expires_at` (nullable), `revoked_at`. Tokens are stored only as SHA-256 hashes. Expired and revoked sessions are deleted at every start. Grafana's read-only role cannot read these tables.
+
 #### Provider Health
 
 Current health of a provider, one row per provider.
@@ -831,7 +848,7 @@ Grafana should provide:
 - High-frequency trading infrastructure
 - Individual bond data
 - Licensed benchmarks and surveys (EURIBOR, PMI)
-- API write endpoints for instrument management, and user authentication (decided not required, 2026-11-17: watchlists and groups come from the seed file, holdings from a private file)
+- API write endpoints for instrument management, watchlists or holdings (decided not required, 2026-11-17: watchlists and groups come from the seed file, holdings from a private file). User authentication is in scope (FR-017).
 - A custom web frontend (decided not required, 2026-11-17: Grafana is the interface)
 
 ## 11. Success Criteria

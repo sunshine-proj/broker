@@ -1,5 +1,6 @@
 """Database models. Importing this package registers every table on `Base.metadata`."""
 
+from app.models.auth import ApiToken, AppUser, UserSession
 from app.models.base import Base
 from app.models.economic import EconomicIndicator, EconomicObservation
 from app.models.lists import (
@@ -20,6 +21,9 @@ from app.models.quality import DataQualityIssue
 from app.models.reference import Exchange, Instrument, InstrumentProviderMapping, Provider
 
 __all__ = [
+    "ApiToken",
+    "AppUser",
+    "UserSession",
     "OHLCV",
     "Base",
     "CollectionJob",

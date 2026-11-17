@@ -14,6 +14,7 @@ from typing import Any, Protocol
 
 from app.models import (
     OHLCV,
+    AppUser,
     EconomicIndicator,
     EconomicObservation,
     Exchange,
@@ -29,6 +30,7 @@ from app.models.enums import (
     IndicatorFrequency,
     JobKind,
     ObservationType,
+    UserRole,
 )
 from app.schemas.market_data import EconomicObservationIn, MarketObservationIn, OHLCVIn
 
@@ -312,3 +314,39 @@ class PortfolioRepository(Protocol):
     async def holding_targets(self) -> Sequence[HoldingTarget]: ...
 
     async def replace_all(self, portfolios: Sequence[PortfolioRecord]) -> None: ...
+
+
+class AuthRepository(Protocol):
+    """User accounts, sessions and API tokens (PRD FR-017). Tokens are passed as hashes."""
+
+    async def get_user(self, username: str) -> AppUser | None: ...
+
+    async def list_users(self) -> Sequence[AppUser]: ...
+
+    async def create_user(
+        self, *, username: str, password_hash: str, role: UserRole
+    ) -> uuid.UUID: ...
+
+    async def update_user(self, user_id: uuid.UUID, **values: Any) -> None: ...
+
+    async def add_session(
+        self, *, user_id: uuid.UUID, token_hash: str, expires_at: datetime
+    ) -> None: ...
+
+    async def session_user(self, token_hash: str, now: datetime) -> AppUser | None: ...
+
+    async def revoke_session(self, token_hash: str, now: datetime) -> None: ...
+
+    async def add_token(
+        self, *, user_id: uuid.UUID, name: str, token_hash: str, expires_at: datetime | None
+    ) -> uuid.UUID: ...
+
+    async def token_user(self, token_hash: str, now: datetime) -> AppUser | None: ...
+
+    async def list_tokens(self) -> Sequence[Mapping[str, Any]]: ...
+
+    async def revoke_token(self, user_id: uuid.UUID, name: str, now: datetime) -> bool: ...
+
+    async def revoke_credentials(
+        self, user_id: uuid.UUID, now: datetime, *, tokens: bool = True
+    ) -> None: ...

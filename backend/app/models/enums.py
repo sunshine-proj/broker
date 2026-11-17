@@ -130,6 +130,13 @@ class ProviderHealthStatus(StrEnum):
     DOWN = "down"
 
 
+class UserRole(StrEnum):
+    """What a user may do (PRD FR-017). Both roles read everything."""
+
+    VIEWER = "viewer"
+    ADMIN = "admin"
+
+
 def enum_type(enum_class: type[StrEnum], name: str, length: int = 32) -> sa.Enum:
     """Column type for an enumeration; `name` becomes part of the CHECK constraint name."""
     return sa.Enum(

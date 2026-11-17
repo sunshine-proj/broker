@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 
 import app.providers  # noqa: F401  (registers the adapters)
-from app.api import metrics, v1
+from app.api import auth, metrics, v1
 from app.api.errors import register_exception_handlers
 from app.collectors.runner import JobRunner
 from app.collectors.scheduler import CollectorScheduler
@@ -57,10 +57,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await engine.dispose()
             logger.info("Application stopped")
 
-    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    # The documentation is served by app.api.auth, to signed-in users only.
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.settings = settings
     register_exception_handlers(app)
     app.include_router(v1.router)
+    app.include_router(auth.router)
     app.include_router(metrics.router)
     app.middleware("http")(_record_request)
     return app

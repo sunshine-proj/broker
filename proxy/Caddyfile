@@ -21,21 +21,29 @@
 	@metrics path /metrics /metrics/*
 	respond @metrics 404
 
-	# Grafana, behind its own login, under /grafana/: Grafana's own front end
-	# uses /api/..., which therefore stays free for the REST API.
+	# Sign-in (PRD FR-017). Only the backend may set these headers, through
+	# forward_auth below: whatever a client sends is dropped.
+	request_header -X-Webauth-User
+	request_header -X-Webauth-Role
+
+	# Grafana, for signed-in users, under /grafana/: Grafana's own front end
+	# uses /api/..., which therefore stays free for the REST API. The backend
+	# answers who is signed in, or sends the browser to the login page.
 	redir / /grafana/ 308
 	handle /grafana* {
-		reverse_proxy grafana:3000
+		forward_auth backend:8000 {
+			uri /auth/verify
+			copy_headers X-Webauth-User X-Webauth-Role
+		}
+		reverse_proxy grafana-auth:3000
 	}
 
-	# The REST API and its documentation, behind basic authentication: the data
-	# may not be redistributed, so the API is for the people you give the
-	# credentials to. Manual job triggers also need ADMIN_API_KEY.
-	@api path /api/v1 /api/v1/* /docs /docs/* /openapi.json /redoc
-	handle @api {
-		basic_auth {
-			{$API_USERNAME} {$API_PASSWORD_HASH}
-		}
+	# The login page, the REST API and its documentation. The backend checks
+	# the session cookie or API token itself: the data may not be redistributed,
+	# so only people with an account may read it. Manual job triggers also need
+	# ADMIN_API_KEY.
+	@backend path /auth/* /api/v1 /api/v1/* /docs /openapi.json
+	handle @backend {
 		reverse_proxy backend:8000
 	}
 

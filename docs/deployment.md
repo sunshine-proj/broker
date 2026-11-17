@@ -11,7 +11,8 @@ How to run the platform in production: the server, the configuration, HTTPS, acc
             +----+----+
             |  proxy  |  Caddy: HTTPS (Let's Encrypt), security headers
             +----+----+
-   /grafana/ ... | ... /api/v1, /docs (basic auth)
+   /grafana/ ... | ... /auth, /api/v1, /docs   (every request: signed in?
+                 |                            asks the backend, /auth/verify)
    +-------------+--------------+
    | grafana                    | backend ---- providers (internet)
    |   |                        |   |
@@ -24,6 +25,7 @@ How to run the platform in production: the server, the configuration, HTTPS, acc
 
 - **Two Compose files:** `docker-compose.yml` is the whole stack and publishes nothing. `docker-compose.prod.yml` adds the proxy. The production `.env` selects both with `COMPOSE_FILE`, so plain `docker compose` commands use them. `docker-compose.override.yml`, which publishes every port for development, is then not loaded.
 - **Networks:** the `internal` network has no route to the outside world. The database and Prometheus are only on it. The backend (provider calls), the `migrate` service (command-line collection), Alertmanager (notifications) and the proxy are also on `egress`.
+- **Sign-in:** one set of accounts for Grafana and the API (PRD FR-017). The proxy reaches Grafana over a third network, `grafana_auth`, with fixed addresses, so Grafana can trust the user it passes on.
 - **Not reachable from outside:** the database, Prometheus, Alertmanager and the backend's `/metrics`.
 
 ## Server Requirements
@@ -55,7 +57,7 @@ How to run the platform in production: the server, the configuration, HTTPS, acc
    chmod 600 .env
    ```
 
-   This prints the API's basic-auth password once (to stderr). Store it in your password manager; only its bcrypt hash is written. Docker is needed, because the hash comes from the proxy image's `caddy hash-password`.
+   User accounts are not in the file; you create them after the first start (see [Accounts](#accounts)).
 
 2. Edit `.env`:
    - `GRAFANA_ADMIN_USER`: anything but `admin`.
@@ -81,7 +83,8 @@ Every setting is in `.env.example` with a comment. The production-only ones:
 | `COMPOSE_FILE` | `docker-compose.yml:docker-compose.prod.yml` |
 | `DOMAIN` | Public host name; the certificate is issued for it |
 | `ACME_EMAIL` | Contact for Let's Encrypt (expiry notices) |
-| `API_USERNAME`, `API_PASSWORD_HASH` | The REST API's basic-auth account. The hash is bcrypt, in single quotes so Compose does not read its `$` signs. |
+| `AUTH_PROXY_SUBNET`, `AUTH_PROXY_ADDRESS`, `AUTH_GRAFANA_ADDRESS` | The private network between the proxy and Grafana (default `172.31.254.0/29`, `.2`, `.3`). Grafana accepts the signed-in user only from the proxy's address. Change all three together if the range is taken on the server. |
+| `SESSION_HOURS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | Session length (12), and the lockout after failed logins (5 failures, 15 minutes). Also in development. |
 | `PROXY_HTTP_PORT`, `PROXY_HTTPS_PORT` | Host ports of the proxy (80, 443) |
 
 ### Secrets
@@ -100,7 +103,7 @@ Every setting is in `.env.example` with a comment. The production-only ones:
   - `BACKEND_DB_PASSWORD` or `GRAFANA_DB_PASSWORD`: change it in `.env` and run `docker compose up -d`; `migrate` updates the role.
   - `POSTGRES_PASSWORD`: change it in the database first (`ALTER ROLE ... PASSWORD`), then in `.env`. The database volume keeps the password it was created with.
   - `GRAFANA_ADMIN_PASSWORD`: change it in Grafana, for the same reason.
-  - The API password: create a new hash with `docker run --rm -it caddy:2.11.9-alpine caddy hash-password`, put it in `API_PASSWORD_HASH`, then `docker compose up -d proxy`.
+  - A user's password: `docker compose run --rm migrate python -m app.cli user password NAME`. It ends that user's sessions.
 - **Provider keys:** if one leaks, revoke it at the provider and set the new one.
 
 ## Starting
@@ -112,45 +115,67 @@ docker compose ps
 
 All services should be running and healthy, and `migrate` should have exited with 0. Caddy obtains the certificate on the first request to `https://DOMAIN`; `docker compose logs proxy` shows it.
 
+### Accounts
+
+Nobody can sign in until you create an account. Create the first administrator, then the others:
+
+```bash
+docker compose run --rm migrate python -m app.cli user add alice --admin   # asks for the password twice
+docker compose run --rm migrate python -m app.cli user add bob             # a viewer
+```
+
+| Command (`docker compose run --rm migrate python -m app.cli ...`) | Does |
+| --- | --- |
+| `user add NAME [--admin]` | Create an account; `--password-stdin` reads the password from standard input |
+| `user password NAME` | Set a new password; unlocks the account and ends its sessions |
+| `user role NAME viewer\|admin` | Change the role |
+| `user disable NAME`, `user enable NAME` | Disabling ends the account's sessions and revokes its API tokens at once |
+| `user list` | Accounts, roles, locks and last logins |
+| `token create NAME TOKEN_NAME [--days N]` | Issue an API token for scripts; printed once |
+| `token revoke NAME TOKEN_NAME`, `token list` | Revoke a token; list tokens (never their values) |
+
+Passwords need at least 12 characters. An `admin` is an administrator of Grafana's organisation; a `viewer` can look at everything but change nothing. Accounts are created in Grafana on their first visit. There is no self sign-up.
+
 ### Verifying the Deployment
 
 From any machine:
 
 ```bash
-API_PASSWORD='the password generate_env printed' scripts/smoke_test.sh https://data.example.com
+SMOKE_PASSWORD='alice's password' scripts/smoke_test.sh https://data.example.com alice
 ```
 
-It checks 15 things:
-- the redirect to Grafana, Grafana's health and its login;
-- the API refusing requests without credentials or with a wrong password, and answering with them;
-- the API data and documentation;
+It checks 26 things:
+- the redirect to Grafana; Grafana, the API and its documentation refusing anonymous requests, browsers being sent to the login page, and a forged user header being ignored;
+- a wrong password being refused, then signing in: a `Secure`, `HttpOnly` cookie, the API data and documentation, and Grafana knowing the user;
 - manual triggers still needing the administrator key;
 - `/metrics` and unknown paths not being served;
+- signing out ending the session;
 - HSTS and the other security headers;
 - the redirect from HTTP to HTTPS.
 
-Then sign in to Grafana and check the System Monitoring dashboard: everything up, no firing alerts.
+Then sign in and check the System Monitoring dashboard: everything up, no firing alerts.
 
 ## Access
 
 | What | Where | Who |
 | --- | --- | --- |
-| Grafana | `https://DOMAIN/grafana/` (`/` redirects there) | Grafana accounts |
-| REST API | `https://DOMAIN/api/v1/...`, documentation at `/docs` | The basic-auth account |
+| Login | `https://DOMAIN/auth/login`, sign out at `/auth/logout` | Platform accounts ([Accounts](#accounts)) |
+| Grafana | `https://DOMAIN/grafana/` (`/` redirects there) | Signed-in users |
+| REST API | `https://DOMAIN/api/v1/...`, documentation at `/docs` | Signed-in users and API tokens |
 | Prometheus, Alertmanager | Not published; use an SSH tunnel | Server administrators |
 
 ### Grafana
 
-- **Accounts:** create them as the administrator (Administration, Users), with the Viewer role for people who only look at dashboards. Sign-up, anonymous access and organisation creation are off.
+- **One login:** the proxy asks the backend about every Grafana request (`/auth/verify`) and passes the signed-in user and role on. Grafana trusts these headers only from the proxy's fixed address, on a network only the two share; the proxy drops any a client sends. Grafana's own login form is off; signing out of Grafana signs out of the platform. Sign-up, anonymous access and organisation creation are off. The Grafana administrator account (`GRAFANA_ADMIN_USER`) remains for emergencies only, through Grafana's API on the internal network.
 - **No public sharing:** public dashboards and external snapshots are disabled. The providers' licences do not allow redistributing their data, so share access only with people entitled to it.
-- **Cookies:** secure (HTTPS only) and same-site strict. Grafana enforces HSTS as well. Repeated failed logins are throttled (Grafana's brute-force protection).
+- **Cookies:** the platform's session cookie is `Secure`, `HttpOnly` and `SameSite=Lax`; Grafana's own are secure and same-site strict. Grafana enforces HSTS as well. Repeated failed logins lock the account (`LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES`).
 - **No calls home:** usage reporting, update checks and the news feed are off. Plugins cannot be installed from the UI.
 
 ### The REST API
 
-- **Read-only:** every read endpoint needs the basic-auth account, which covers the whole API. The only write endpoint, the manual job trigger, also needs `ADMIN_API_KEY`, and is disabled while that is empty.
-- **Who gets it:** anyone with the credentials can read all collected data. Give them only to people the provider licences allow to see it.
-- **No rate limiting:** the proxy does not limit request rates. The API is read-only and paginated, and the account is shared, so treat the credentials like a password.
+- **Read-only:** every endpoint but `/api/v1/health` needs a signed-in user: a session cookie from the login page, or an API token (`Authorization: Bearer ...`, see [Accounts](#accounts)). The only write endpoint, the manual job trigger, also needs `ADMIN_API_KEY`, and is disabled while that is empty.
+- **Who gets an account:** every account can read all collected data. Give accounts only to people the provider licences allow to see it.
+- **No rate limiting:** the proxy does not limit request rates; logins are protected by the account lockout. The API is read-only and paginated.
 - **No CORS:** browsers on other sites cannot call the API.
 
 ### Prometheus and Alertmanager
@@ -311,8 +336,9 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.69.
 - [ ] `scripts/check_env.py .env` passes, and `.env` is mode 600.
 - [ ] The firewall allows only SSH, 80 and 443.
 - [ ] `scripts/smoke_test.sh` passes.
-- [ ] The Grafana administrator is not called `admin`, and people use their own Viewer accounts.
-- [ ] The API credentials and `ADMIN_API_KEY` (if set) are known only to those who need them.
+- [ ] Everyone has their own account, admins only where needed (`user list`); accounts of people who left are disabled.
+- [ ] The Grafana administrator is not called `admin`.
+- [ ] API tokens and `ADMIN_API_KEY` (if set) are known only to those who need them (`token list`).
 - [ ] Backups are copied off the server, and `scripts/test_backup_restore.sh` has passed.
 - [ ] Alert notifications reach someone ([monitoring.md](monitoring.md), "Notifications").
 - [ ] The provider licences allow the use and the audience ([providers/](providers/)).

@@ -52,6 +52,7 @@ from app.services.ingestion import IngestionService
 from app.services.quality import QualityService, QualitySettings
 from app.services.seed import apply_seed
 from app.services.storage_policies import StoragePolicies, apply_storage_policies
+from tests.conftest import signed_in
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
@@ -693,7 +694,7 @@ async def test_issues_are_served_by_the_api(world: World, migrated_database: Set
     await world.prices("EUR/USD", "other", (NOW - timedelta(minutes=5), "1.30"))
     await world.check()
 
-    with TestClient(create_app(migrated_database)) as client:
+    with TestClient(signed_in(create_app(migrated_database))) as client:
         window = {"start": "2026-11-01T00:00:00Z", "end": "2026-12-01T00:00:00Z"}
         everything = client.get("/api/v1/quality/issues", params=window).json()
         gaps = client.get("/api/v1/quality/issues", params=window | {"kind": "gap"}).json()

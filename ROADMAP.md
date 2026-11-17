@@ -424,8 +424,8 @@ Delivered beyond the list: a US Treasury adapter (the primary source of the yiel
 - [x] Implement yield curve visualization.
 - [x] Implement portfolio tracking.
 - [ ] Implement optional custom frontend. Not required: Grafana is the interface (PRD section 10, decided 2026-11-17).
-- [ ] Implement user authentication if required. Not required: lists come from the seed file and holdings from a private file, so there are no per-user data or write endpoints (PRD FR-015, section 10, decided 2026-11-17).
-- [ ] Implement instrument management write endpoints once authentication exists. Not applicable while there is no authentication; instruments are managed in the seed file.
+- [x] Implement user authentication if required. Accounts, sessions, API tokens and one login for the API and Grafana (PRD FR-017, 2026-11-17).
+- [ ] Implement instrument management write endpoints once authentication exists. Not required: instruments are managed in the seed file (PRD FR-004, section 10).
 
 ### Acceptance Criteria
 

@@ -7,10 +7,9 @@
 
 Every password and key the stack needs is generated (32 random bytes,
 URL-safe). Provider API keys are left empty: add yours. With --production,
-the file also selects docker-compose.prod.yml and holds the domain, the
-Let's Encrypt contact and the API's basic-auth account. The API password is
-printed once, to stderr; only its bcrypt hash is written (made with the proxy
-image's `caddy hash-password`, so Docker is needed).
+the file also selects docker-compose.prod.yml and holds the domain and the
+Let's Encrypt contact. User accounts are not in the file: create them after
+the first start with `python -m app.cli user add` (docs/deployment.md).
 
 Then: chmod 600 .env, and check it with scripts/check_env.py.
 Standard library only.
@@ -18,7 +17,6 @@ Standard library only.
 
 import argparse
 import secrets
-import subprocess
 import sys
 from pathlib import Path
 
@@ -27,7 +25,6 @@ from env_file import parse, quote  # noqa: E402
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 EXAMPLE = REPOSITORY / ".env.example"
-CADDY_IMAGE = "caddy:2.11.9-alpine"
 
 GENERATED = (
     "POSTGRES_PASSWORD",
@@ -42,31 +39,15 @@ def secret() -> str:
     return secrets.token_urlsafe(32)
 
 
-def bcrypt(password: str) -> str:
-    result = subprocess.run(
-        ["docker", "run", "--rm", "-i", CADDY_IMAGE, "caddy", "hash-password"],
-        input=password + "\n" + password + "\n",
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout.strip().splitlines()[-1]
-
-
 def generate(production: bool, domain: str | None, email: str | None) -> str:
     template = EXAMPLE.read_text()
     values = {key: secret() for key in GENERATED}
     if production:
-        api_password = secret()
         values |= {
             "COMPOSE_FILE": "docker-compose.yml:docker-compose.prod.yml",
             "DOMAIN": domain or "",
             "ACME_EMAIL": email or "",
-            "API_USERNAME": "api",
-            "API_PASSWORD_HASH": bcrypt(api_password),
         }
-        print(f"API basic-auth account: api / {api_password}", file=sys.stderr)
-        print("Store the password now; only its hash is in the file.", file=sys.stderr)
 
     lines = []
     for line in template.splitlines():

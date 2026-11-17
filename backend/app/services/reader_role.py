@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 _ROLE_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 STATEMENT_TIMEOUT = "30s"
+# Never readable by Grafana's role.
+CREDENTIAL_TABLES = ("app_user", "user_session", "api_token")
 
 
 class ReaderRoleError(Exception):
@@ -103,6 +105,9 @@ async def ensure_reader_role(connection: AsyncConnection, name: str, password: s
     await role.run("ALTER ROLE %I SET statement_timeout = %L", STATEMENT_TIMEOUT)
     await role.run("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I")
     await role.run("REVOKE SELECT ON alembic_version FROM %I")
+    # Accounts, sessions and tokens are the backend's alone (PRD FR-017).
+    for table in CREDENTIAL_TABLES:
+        await role.run(f"REVOKE SELECT ON {table} FROM %I")
     logger.info("Read-only role granted read access", extra={"role": name, "database": database})
 
 

@@ -8,6 +8,7 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from app.config.settings import Settings
 from app.main import create_app
+from tests.conftest import signed_in
 from tests.sample_data import NOW, Ids
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
@@ -15,7 +16,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
 @pytest.fixture
 def client(migrated_database: Settings) -> Iterator[TestClient]:
-    with TestClient(create_app(migrated_database)) as test_client:
+    with TestClient(signed_in(create_app(migrated_database))) as test_client:
         yield test_client
 
 

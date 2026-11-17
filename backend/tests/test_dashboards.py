@@ -274,6 +274,10 @@ async def test_reader_role_can_only_read(reader: asyncpg.Connection) -> None:
         )
     with pytest.raises(asyncpg.InsufficientPrivilegeError):
         await reader.fetch("SELECT * FROM alembic_version")
+    # Password and token hashes are the backend's alone (PRD FR-017).
+    for table in ("app_user", "user_session", "api_token"):
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await reader.fetch(f"SELECT * FROM {table}")
 
 
 @pytest.mark.integration

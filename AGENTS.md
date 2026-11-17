@@ -170,7 +170,7 @@ Do not expose provider API credentials through public endpoints.
 
 Provider credentials are read from environment variables only. Never store them in the database.
 
-The API is read-only except for the manual collection trigger, which requires the administrator key. Do not add other write endpoints before user authentication exists.
+Every endpoint except the health check requires a signed-in user (PRD FR-017); include new routers with the `require_user` dependency in `app/api/v1/__init__.py`. The API is read-only except for the manual collection trigger, which also requires the administrator key. A new write endpoint must be in the PRD first and check the user's role.
 
 ## 7. Database Development
 

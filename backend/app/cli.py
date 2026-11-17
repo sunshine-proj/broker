@@ -13,10 +13,20 @@ Usage:
     python -m app.cli reader-role
     python -m app.cli app-role
     python -m app.cli storage-policies
+    python -m app.cli user add NAME [--admin] [--password-stdin]
+    python -m app.cli user password NAME [--password-stdin]
+    python -m app.cli user role NAME viewer|admin
+    python -m app.cli user enable|disable NAME
+    python -m app.cli user list
+    python -m app.cli token create NAME TOKEN_NAME [--days N]
+    python -m app.cli token revoke NAME TOKEN_NAME
+    python -m app.cli token list
+    python -m app.cli prune-sessions
 """
 
 import argparse
 import asyncio
+import getpass
 import logging
 import sys
 from collections.abc import AsyncIterator
@@ -40,9 +50,16 @@ from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.database import create_engine, create_session_factory
 from app.models import Provider as ProviderRow
-from app.models.enums import CandleInterval, CollectorStatus, ExecutionTrigger, ObservationType
+from app.models.enums import (
+    CandleInterval,
+    CollectorStatus,
+    ExecutionTrigger,
+    ObservationType,
+    UserRole,
+)
 from app.providers.errors import ProviderError
 from app.providers.factory import ProviderFactory
+from app.repositories.auth import SqlAuthRepository
 from app.repositories.collection_jobs import SqlCollectionJobRepository
 from app.repositories.economic_data import SqlEconomicDataRepository
 from app.repositories.instruments import SqlInstrumentRepository
@@ -52,6 +69,7 @@ from app.repositories.portfolios import SqlPortfolioRepository
 from app.repositories.provider_health import SqlProviderHealthRepository
 from app.repositories.providers import SqlProviderRepository
 from app.repositories.quality import SqlQualityRepository
+from app.services.auth import AuthError, AuthService
 from app.services.collection import CollectionOutcome, CollectionService
 from app.services.ingestion import IngestionService
 from app.services.portfolio import PortfolioError, apply_portfolios, load_portfolio_file
@@ -280,6 +298,69 @@ async def storage_policies(settings: Settings) -> None:
         await engine.dispose()
 
 
+def read_password(from_stdin: bool) -> str:
+    """A new password: one line of standard input, or typed twice at a prompt."""
+    if from_stdin:
+        return sys.stdin.readline().rstrip("\n")
+    first = getpass.getpass("New password: ")
+    if getpass.getpass("Repeat it: ") != first:
+        raise CommandError("The passwords differ.")
+    return first
+
+
+async def users(settings: Settings, args: argparse.Namespace) -> None:
+    """Accounts and API tokens (PRD FR-017). Secrets are never logged."""
+    async with _session(settings) as session:
+        repository = SqlAuthRepository(session)
+        service = AuthService(repository)
+        action = args.action
+        if args.command == "user" and action == "add":
+            role = UserRole.ADMIN if args.admin else UserRole.VIEWER
+            await service.create_user(args.name, read_password(args.password_stdin), role)
+        elif args.command == "user" and action == "password":
+            await service.set_password(args.name, read_password(args.password_stdin))
+        elif args.command == "user" and action == "role":
+            await service.set_role(args.name, UserRole(args.role))
+        elif args.command == "user" and action in ("enable", "disable"):
+            await service.set_enabled(args.name, action == "enable")
+        elif args.command == "user":
+            print(f"{'USER':<24} {'ROLE':<7} {'ON':<3} {'LOCKED UNTIL':<17} LAST LOGIN")
+            for user in await repository.list_users():
+                enabled = "yes" if user.enabled else "no"
+                print(
+                    f"{user.username:<24} {user.role.value:<7} {enabled:<3} "
+                    f"{_when(user.locked_until):<17} {_when(user.last_login_at)}"
+                )
+            return
+        elif action == "create":
+            token = await service.issue_token(args.name, args.token_name, args.days)
+            # Shown once, on standard output only.
+            print(token)
+        elif action == "revoke":
+            await service.revoke_token(args.name, args.token_name)
+        else:
+            print(f"{'USER':<24} {'TOKEN':<24} {'CREATED':<17} {'EXPIRES':<17} REVOKED")
+            for token in await repository.list_tokens():
+                print(
+                    f"{token['username']:<24} {token['name']:<24} {_when(token['created_at']):<17} "
+                    f"{_when(token['expires_at']):<17} {_when(token['revoked_at'])}"
+                )
+            return
+        await session.commit()
+
+
+async def prune_sessions(settings: Settings) -> None:
+    """Delete expired and revoked sessions; needs the owner's rights."""
+    async with _session(settings) as session:
+        deleted = await SqlAuthRepository(session).prune_sessions(datetime.now(UTC))
+        await session.commit()
+    logger.info("Old sessions deleted", extra={"count": deleted})
+
+
+def _when(value: datetime | None) -> str:
+    return value.strftime("%Y-%m-%d %H:%M") if value else "-"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -302,6 +383,36 @@ def _build_parser() -> argparse.ArgumentParser:
     commands.add_parser("reader-role", help="set up the read-only database role for Grafana")
     commands.add_parser("app-role", help="set up the backend's database role")
     commands.add_parser("storage-policies", help="apply the compression and retention policies")
+    commands.add_parser("prune-sessions", help="delete expired and revoked sign-in sessions")
+
+    user_parser = commands.add_parser("user", help="manage user accounts")
+    user_actions = user_parser.add_subparsers(dest="action", required=True)
+    for action, text in (("add", "create an account"), ("password", "set a new password")):
+        action_parser = user_actions.add_parser(action, help=text)
+        action_parser.add_argument("name")
+        action_parser.add_argument(
+            "--password-stdin", action="store_true", help="read the password from standard input"
+        )
+        if action == "add":
+            action_parser.add_argument("--admin", action="store_true", help="role admin")
+    role_parser = user_actions.add_parser("role", help="change an account's role")
+    role_parser.add_argument("name")
+    role_parser.add_argument("role", choices=[r.value for r in UserRole])
+    for action in ("enable", "disable"):
+        user_actions.add_parser(action, help=f"{action} an account").add_argument("name")
+    user_actions.add_parser("list", help="list accounts")
+
+    token_parser = commands.add_parser("token", help="manage personal API tokens")
+    token_actions = token_parser.add_subparsers(dest="action", required=True)
+    create_parser = token_actions.add_parser("create", help="issue a token and print it once")
+    create_parser.add_argument("name", help="the account")
+    create_parser.add_argument("token_name", help="what the token is for, e.g. laptop")
+    create_parser.add_argument("--days", type=int, help="expire after this many days")
+    revoke_parser = token_actions.add_parser("revoke", help="revoke a token")
+    revoke_parser.add_argument("name")
+    revoke_parser.add_argument("token_name")
+    token_actions.add_parser("list", help="list tokens (never their values)")
+
     run_parser = commands.add_parser("run", help="run a collection job now")
     run_parser.add_argument("job")
 
@@ -370,6 +481,10 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(app_role(settings))
         elif args.command == "storage-policies":
             asyncio.run(storage_policies(settings))
+        elif args.command in ("user", "token"):
+            asyncio.run(users(settings, args))
+        elif args.command == "prune-sessions":
+            asyncio.run(prune_sessions(settings))
         elif args.command == "run":
             result = asyncio.run(run_job(settings, args.job))
             return 0 if result.status is CollectorStatus.SUCCESS else 2
@@ -384,7 +499,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome = asyncio.run(collect(settings, request))
             # A provider failure is already logged and recorded; report it in the exit code.
             return 0 if outcome.succeeded else 2
-    except (SeedError, PortfolioError, CommandError) as exc:
+    except (SeedError, PortfolioError, AuthError, CommandError) as exc:
         logger.error("%s", exc)
         return 1
     return 0

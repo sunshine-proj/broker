@@ -21,15 +21,18 @@ from app.collectors.runner import JobRunner
 from app.config.settings import Settings
 from app.database import create_engine, create_session_factory
 from app.main import create_app
-from app.models.enums import CollectorStatus, ExecutionTrigger
+from app.models.enums import CollectorStatus, ExecutionTrigger, UserRole
 from app.providers.factory import ADAPTERS, ProviderFactory
+from app.repositories.auth import SqlAuthRepository
 from app.repositories.collection_jobs import SqlCollectionJobRepository
 from app.repositories.economic_data import SqlEconomicDataRepository
 from app.repositories.instruments import SqlInstrumentRepository
 from app.repositories.providers import SqlProviderRepository
 from app.schemas.seed import SeedFile
+from app.services.auth import AuthService
 from app.services.reader_role import ReaderRoleError, ensure_app_role
 from app.services.seed import apply_seed
+from tests.conftest import signed_in
 from tests.test_quality_integration import MARKET, NOW, SEED, FakeProvider
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
@@ -114,8 +117,24 @@ async def test_the_backend_collects_checks_and_backfills_as_the_role(
         await engine.dispose()
 
 
-async def test_the_api_and_metrics_work_as_the_role(app_settings: Settings) -> None:
+async def test_signing_in_works_as_the_role(
+    app_settings: Settings, empty_database: AsyncEngine
+) -> None:
+    """Logins update the account and insert a session: within the role's rights."""
+    async with create_session_factory(empty_database)() as session:
+        await AuthService(SqlAuthRepository(session)).create_user(
+            "rolecheck", "a password for tests", UserRole.VIEWER
+        )
+        await session.commit()
     with TestClient(create_app(app_settings)) as client:
+        for password in ("wrong password!", "a password for tests"):
+            client.post("/auth/login", data={"username": "rolecheck", "password": password})
+        assert client.get("/api/v1/auth/me").json()["username"] == "rolecheck"
+        assert client.post("/auth/logout").status_code == 200
+
+
+async def test_the_api_and_metrics_work_as_the_role(app_settings: Settings) -> None:
+    with TestClient(signed_in(create_app(app_settings))) as client:
         assert client.get("/api/v1/health").json()["database"] == "ok"
         assert client.get("/api/v1/instruments").status_code == 200
         assert "marketdata_database_up 1.0" in client.get("/metrics").text

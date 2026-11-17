@@ -72,6 +72,8 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 - Follow the API conventions in PRD FR-006 for errors, pagination, time ranges, decimals, and timestamps.
 - Validate all query parameters with Pydantic or FastAPI parameter types.
 - Never return provider credentials or the provider `configuration` object unfiltered.
+- Every router except health is included with `Depends(require_user)`; a test checks that every route in the OpenAPI schema refuses anonymous requests. Tests sign in with `tests.conftest.signed_in`.
+- Never log a password, token or hash, and never return one. Account tables are not readable by Grafana's role; keep it that way for any new credential table.
 
 ## 7. Collection and Scheduling
 

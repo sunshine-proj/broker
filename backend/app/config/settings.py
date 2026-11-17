@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     backend_db_user: str = "marketdata_app"
     backend_db_password: SecretStr | None = None
 
+    # Sign-in (PRD FR-017). Sessions last this many hours. The cookie is
+    # marked Secure when served over HTTPS (true behind the production proxy).
+    session_hours: int = Field(default=12, gt=0, le=24 * 30)
+    session_cookie_secure: bool = False
+    # Where the login page sends a user who did not come from another page.
+    home_path: str = Field(default="/docs", pattern=r"^/[^/\\]")
+    # Consecutive failed logins that lock an account, and for how long.
+    login_max_failures: int = Field(default=5, gt=0)
+    login_lockout_minutes: int = Field(default=15, gt=0)
+
     # Private holdings for portfolio tracking (PRD FR-016), loaded at every
     # start by `python -m app.cli portfolio`. A missing file means no
     # portfolios. Never commit it. In Docker, /portfolio is mounted from the

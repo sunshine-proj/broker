@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config.settings import Settings
 from app.main import create_app
+from tests.conftest import signed_in
 
 pytestmark = pytest.mark.integration
 
@@ -50,7 +51,7 @@ def test_migrations_downgrade_and_upgrade_again(
 
 
 def test_health_with_real_database(migrated_database: Settings) -> None:
-    with TestClient(create_app(migrated_database)) as client:
+    with TestClient(signed_in(create_app(migrated_database))) as client:
         response = client.get("/api/v1/health")
 
     assert response.status_code == 200
@@ -63,7 +64,7 @@ def test_health_when_database_is_unreachable(migrated_database: Settings) -> Non
         update={"postgres_port": 1, "database_connect_timeout_seconds": 2.0}
     )
 
-    with TestClient(create_app(unreachable)) as client:
+    with TestClient(signed_in(create_app(unreachable))) as client:
         response = client.get("/api/v1/health")
 
     assert response.status_code == 503

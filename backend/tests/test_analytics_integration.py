@@ -35,7 +35,7 @@ from app.schemas.market_data import MarketObservationIn, OHLCVIn
 from app.schemas.seed import SeedFile
 from app.services.portfolio import PortfolioFile, apply_portfolios
 from app.services.seed import apply_seed
-from tests.conftest import refresh_daily_observation
+from tests.conftest import refresh_daily_observation, signed_in
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
@@ -264,7 +264,7 @@ async def data(empty_database: AsyncEngine) -> AsyncIterator[Data]:
 
 @pytest.fixture
 def client(migrated_database: Settings) -> Iterator[TestClient]:
-    with TestClient(create_app(migrated_database)) as test_client:
+    with TestClient(signed_in(create_app(migrated_database))) as test_client:
         yield test_client
 
 

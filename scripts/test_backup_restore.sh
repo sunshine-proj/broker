@@ -40,7 +40,7 @@ compare() {
 
 for table in exchange provider instrument instrument_provider_mapping economic_indicator \
         collection_job instrument_list instrument_list_member yield_spread portfolio \
-        portfolio_holding alembic_version; do
+        portfolio_holding app_user api_token alembic_version; do
     compare "$table" "$(psql -d "$POSTGRES_DB" -c "SELECT count(*) FROM $table")" \
         "$(psql -d "$scratch" -c "SELECT count(*) FROM $table")"
 done

@@ -406,6 +406,27 @@ portfolio_holding --> v_portfolio_holding, portfolio_value_history()   with fx_r
 - **Seed and portfolio files:** watchlists, groups and spreads are applied with the seed by `SqlListRepository`; lists and spreads removed from the file are disabled. `python -m app.cli portfolio` replaces every portfolio from the private file through `SqlPortfolioRepository`, after checking every holding, so a bad file changes nothing.
 - **API:** `app/api/v1/analytics.py` -> `services/analytics.py` -> `SqlAnalyticsRepository`, which only filters and orders the views.
 
+## Authentication
+
+PRD FR-017. Accounts, sessions and API tokens are in `app_user`, `user_session` and `api_token` (migration `0010`).
+
+```text
+browser --cookie marketdata_session--+
+script  --Authorization: Bearer------+--> current_user (app/api/auth.py) --> AuthService --> SqlAuthRepository
+                                                |
+             /api/v1 routers: Depends(require_user)  (health excepted)
+             /docs, /openapi.json: signed-in only (FastAPI's own docs routes are off)
+proxy --forward_auth /auth/verify--> 204 + X-WEBAUTH-USER / X-WEBAUTH-ROLE --> Grafana auth proxy
+```
+
+- **Passwords:** scrypt from the standard library (N=2^15, r=8, p=3), with the parameters in the stored string. Hashing runs in a thread, off the event loop. An unknown user name is checked against a dummy hash, so it takes as long as a wrong password.
+- **Tokens:** session and API tokens are 32 random bytes; only their SHA-256 is stored. A request is looked up by that hash, and only while the token is unrevoked, unexpired and its user enabled, so disabling a user takes effect on the next request.
+- **Login form:** parsed without a form library. It rejects posts whose `Origin` is another site, and only ever redirects to a local path (`safe_next`). The cookie is `HttpOnly`, `SameSite=Lax` (so links from elsewhere open signed in), and `Secure` behind HTTPS.
+- **Lockout:** failed logins are counted on the account; reaching `LOGIN_MAX_FAILURES` sets `locked_until`. Failure counts are committed even though the login fails.
+- **Rights:** the backend's role reads and updates accounts and inserts sessions; deleting old sessions is the owner's, at every start (`prune-sessions`). Grafana's read-only role cannot read the three tables at all.
+- **Grafana:** in production, Caddy drops any client-sent `X-Webauth-*` headers, calls `/auth/verify` for every `/grafana` request, and copies the user and role from the answer. Grafana (`GF_AUTH_PROXY_*`) accepts them only from the proxy's fixed address on the `grafana_auth` network, creates the user on first visit, and syncs the role (`admin` -> Admin, `viewer` -> Viewer).
+- **Tests:** API tests sign in through `tests.conftest.signed_in`, which overrides `current_user`. `tests/test_auth.py` checks that every route in the OpenAPI schema but health refuses anonymous requests; `tests/test_auth_integration.py` signs in for real.
+
 ## Grafana
 
 Grafana reads the database directly, through reporting views, as a read-only role, and Prometheus for the monitoring dashboards. It never writes and never calls the API.
@@ -440,7 +461,7 @@ The analytics dashboards (Market Analytics, Watchlists and Groups, Portfolio) re
 
 1. creates the role `GRAFANA_DB_USER` if needed and sets its password from `GRAFANA_DB_PASSWORD`;
 2. makes it a login role without any administrative right, with `default_transaction_read_only = on` and `statement_timeout = 30s`;
-3. replaces its table privileges with `SELECT` on every table and view in `public`, except `alembic_version`.
+3. replaces its table privileges with `SELECT` on every table and view in `public`, except `alembic_version` and the account tables (`app_user`, `user_session`, `api_token`).
 
 Running after migrations means new tables and views are covered. Identifiers and the password are quoted by PostgreSQL's `format()`, not by Python.
 

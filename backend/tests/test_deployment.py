@@ -39,8 +39,6 @@ GOOD = {
     "COMPOSE_FILE": "docker-compose.yml:docker-compose.prod.yml",
     "DOMAIN": "data.example.org",
     "ACME_EMAIL": "ops@example.org",
-    "API_USERNAME": "api",
-    "API_PASSWORD_HASH": "$2a$14$abcdefghijklmnopqrstuuvwxyz0123456789ABCDEFGHIJKLMNO",
     "POSTGRES_DB": "marketdata",
     "POSTGRES_USER": "marketdata",
     "POSTGRES_PASSWORD": "Kq3vR8nZ1xLp9sT4yW2bH7cJ",
@@ -79,7 +77,7 @@ def test_a_complete_production_env_passes() -> None:
         ({"COMPOSE_FILE": ""}, "COMPOSE_FILE must be"),
         ({"DOMAIN": "localhost"}, "DOMAIN must be a public host name"),
         ({"ACME_EMAIL": "nobody"}, "ACME_EMAIL is not an email address"),
-        ({"API_PASSWORD_HASH": "plain"}, "API_PASSWORD_HASH must be a bcrypt hash"),
+        ({"API_PASSWORD_HASH": "$2a$14$x"}, "API_PASSWORD_HASH is no longer used"),
         ({"POSTGRES_PASSWORD": "change_me"}, "POSTGRES_PASSWORD is a placeholder"),
         ({"GRAFANA_DB_PASSWORD": ""}, "GRAFANA_DB_PASSWORD is empty"),
         ({"BACKEND_DB_PASSWORD": "short1234"}, "shorter than 20"),
@@ -127,15 +125,14 @@ def test_generated_development_env_has_distinct_strong_secrets() -> None:
     assert "COMPOSE_FILE" not in values
 
 
-def test_generated_production_env_passes_the_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(generate_env, "bcrypt", lambda password: "$2a$14$" + "x" * 53)
+def test_generated_production_env_passes_the_check() -> None:
     text = generate_env.generate(True, "data.example.org", "ops@example.org")
     values = env_file.parse(text)
     values["GRAFANA_ADMIN_USER"] = "operator"
 
     assert check_env.problems(values, 0o600) == []
-    # The bcrypt hash is quoted, so Compose does not read its $ as variables.
-    assert re.search(r"^API_PASSWORD_HASH='\$2a\$14\$", text, re.MULTILINE)
+    # No shared account: users sign in with their own (PRD FR-017).
+    assert "API_PASSWORD_HASH" not in values
 
 
 # --- Compose -----------------------------------------------------------------------------
@@ -192,6 +189,26 @@ def test_the_backend_connects_as_its_own_role() -> None:
 
     assert "POSTGRES_USER: ${BACKEND_DB_USER:-marketdata_app}" in backend
     assert "app-role" in services("docker-compose.yml")["migrate"]
+
+
+def test_production_grafana_trusts_only_the_proxy() -> None:
+    """Grafana takes the signed-in user from the proxy, and from nobody else (PRD FR-017)."""
+    prod = services("docker-compose.prod.yml")
+    caddyfile = (REPOSITORY / "proxy" / "Caddyfile").read_text()
+
+    assert 'GF_AUTH_PROXY_ENABLED: "true"' in prod["grafana"]
+    assert "GF_AUTH_PROXY_WHITELIST: ${AUTH_PROXY_ADDRESS:-172.31.254.2}" in prod["grafana"]
+    assert 'GF_AUTH_DISABLE_LOGIN_FORM: "true"' in prod["grafana"]
+    assert "ipv4_address: ${AUTH_PROXY_ADDRESS:-172.31.254.2}" in prod["proxy"]
+    assert 'SESSION_COOKIE_SECURE: "true"' in prod["backend"]
+    # Client-sent user headers are dropped before the backend's answer is copied in,
+    # and Grafana is reached on the dedicated network only.
+    assert caddyfile.index("request_header -X-Webauth-User") < caddyfile.index(
+        "forward_auth backend:8000"
+    )
+    assert "uri /auth/verify" in caddyfile
+    assert "reverse_proxy grafana-auth:3000" in caddyfile
+    assert "basic_auth" not in caddyfile
 
 
 def test_backup_and_restore_scripts_exist_and_are_executable() -> None:

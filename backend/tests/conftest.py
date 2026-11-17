@@ -13,9 +13,11 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.api.auth import AuthenticatedUser, current_user
 from app.config.settings import Settings
 from app.database import create_engine, get_session
 from app.main import create_app
+from app.models.enums import UserRole
 from tests.sample_data import ids  # noqa: F401  (registers the fixture)
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -30,6 +32,16 @@ class FakeSession:
     async def execute(self, *args: object, **kwargs: object) -> None:
         if self.error is not None:
             raise self.error
+
+
+# A user every API test is signed in as, unless it tests signing in itself.
+TEST_USER = AuthenticatedUser("tester", UserRole.VIEWER)
+
+
+def signed_in(app: FastAPI, user: AuthenticatedUser = TEST_USER) -> FastAPI:
+    """`app`, with every request authenticated as `user` (PRD FR-017)."""
+    app.dependency_overrides[current_user] = lambda: user
+    return app
 
 
 # --- Unit test fixtures: no network, no database -----------------------------
@@ -55,7 +67,7 @@ def fake_session() -> FakeSession:
 def app(settings: Settings, fake_session: FakeSession) -> FastAPI:
     app = create_app(settings)
     app.dependency_overrides[get_session] = lambda: fake_session
-    return app
+    return signed_in(app)
 
 
 @pytest.fixture
@@ -146,6 +158,9 @@ async def session(migrated_database: Settings) -> AsyncIterator[AsyncSession]:
 
 # Every table holding data; truncated by `empty_database`.
 DATA_TABLES = (
+    "api_token",
+    "user_session",
+    "app_user",
     "portfolio_holding",
     "portfolio",
     "instrument_list_member",

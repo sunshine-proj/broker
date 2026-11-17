@@ -512,7 +512,42 @@ The performance view recomputes every series on each request. That is fine at to
 
 
 
+Only signed-in users can now use the platform: the REST API, /docs and, in production, Grafana. All 674 tests pass, and a full production-style stack run on https://localhost passed all 26 smoke-test checks. Nothing is committed.
 
+Before you can use the API in dev, create your account. Your dev stack is already on the new migration (0010), and the API now answers 401 without a login:
+
+
+docker compose run --rm migrate python -m app.cli user add yourname --admin
+Then sign in at http://localhost:8000/auth/login. For scripts, create a token with python -m app.cli token create yourname laptop and send it as Authorization: Bearer <token>. In development Grafana keeps its own admin login, because there is no proxy to pass the user on.
+
+How it works
+
+One login for everything: accounts live in the database and an administrator creates them with the CLI; there is no sign-up. Roles are viewer and admin. In production, the proxy checks the login on every Grafana request and passes the user and role to Grafana. A viewer gets Grafana's Viewer role, an admin gets Admin, and Grafana's own login form is off.
+Safety:
+Passwords are stored as scrypt hashes and session and API tokens as SHA-256 hashes; none of them are logged.
+5 failed logins in a row lock an account for 15 minutes.
+Disabling an account ends its sessions and tokens immediately.
+The login form rejects posts from other sites and only redirects to local pages.
+Grafana's read-only database role cannot read the account tables.
+Forged logins in production: the proxy drops any user header a client sends. Grafana accepts the user header only from the proxy's fixed address, on a small network only the two share. I checked both against real containers.
+Left open on purpose: /api/v1/health (container health checks) and /metrics (Prometheus scrapes it inside Docker; production doesn't publish it).
+Changes you'll notice
+
+The shared API account is gone: API_USERNAME and API_PASSWORD_HASH are no longer used. check_env.py now asks you to remove them from a production .env.
+The smoke test takes a real account: SMOKE_PASSWORD=… scripts/smoke_test.sh https://host user.
+PRD: I recorded that authentication is now required (new FR-017), replacing the earlier "not required" decision. The roadmap item is ticked.
+Your dev stack: the backup/restore check made another backup in ./backups.
+Ports 80/443: if the production default network range (172.31.254.0/29) is already used on your server, change AUTH_PROXY_SUBNET and the two *_ADDRESS settings together.
+Choices you may want to revisit
+
+The session cookie is SameSite=Lax rather than Strict, so links from elsewhere open you signed in. Cross-site form posts still carry no cookie.
+The manual collection trigger still needs ADMIN_API_KEY in addition to a login. I didn't tie it to the admin role.
+There is no rate limiting beyond the account lockout.
+
+
+
+
+===========================================
 
 
 

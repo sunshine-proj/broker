@@ -6,9 +6,9 @@
 Reports every problem, and exits with 1 if there is any:
 
 - the production compose files are not selected (COMPOSE_FILE);
-- a required setting is missing (domain, Let's Encrypt contact, API account);
+- a required setting is missing (domain, Let's Encrypt contact);
 - a password or key is empty, a development default, too short, or reused;
-- the API password is not a bcrypt hash;
+- the retired basic-auth account (API_USERNAME, API_PASSWORD_HASH) is still set;
 - the file can be read by other users.
 
 Standard library only.
@@ -29,7 +29,7 @@ PASSWORDS = (
     "GRAFANA_ADMIN_PASSWORD",
     "GRAFANA_DB_PASSWORD",
 )
-REQUIRED = ("POSTGRES_DB", "POSTGRES_USER", "GRAFANA_ADMIN_USER", "DOMAIN", "ACME_EMAIL", "API_USERNAME")
+REQUIRED = ("POSTGRES_DB", "POSTGRES_USER", "GRAFANA_ADMIN_USER", "DOMAIN", "ACME_EMAIL")
 MIN_LENGTH = 20
 # Values that come from documentation or development and must never go live.
 PLACEHOLDERS = re.compile(r"change_?me|password|secret|example|test|^admin$", re.IGNORECASE)
@@ -49,8 +49,9 @@ def problems(values: dict[str, str], mode: int | None) -> list[str]:
     email = values.get("ACME_EMAIL", "")
     if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         found.append("ACME_EMAIL is not an email address")
-    if not values.get("API_PASSWORD_HASH", "").startswith(("$2a$", "$2b$", "$2y$")):
-        found.append("API_PASSWORD_HASH must be a bcrypt hash (caddy hash-password)")
+    for key in ("API_USERNAME", "API_PASSWORD_HASH"):
+        if values.get(key):
+            found.append(f"{key} is no longer used: users sign in with their own accounts; remove it")
 
     seen: dict[str, str] = {}
     for key in PASSWORDS:

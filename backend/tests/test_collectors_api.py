@@ -13,7 +13,7 @@ from app.collectors.runner import JobAlreadyRunningError, JobDisabledError, JobN
 from app.config.settings import Settings
 from app.database import get_session
 from app.main import create_app
-from tests.conftest import FakeSession
+from tests.conftest import FakeSession, signed_in
 
 KEY = "admin-key-for-tests"
 EXECUTION = uuid.UUID("00000000-0000-0000-0000-00000000abcd")
@@ -35,7 +35,7 @@ class FakeScheduler:
 
 
 def client_for(settings: Settings) -> tuple[TestClient, FakeScheduler]:
-    app: FastAPI = create_app(settings)
+    app: FastAPI = signed_in(create_app(settings))
     app.dependency_overrides[get_session] = lambda: FakeSession()
     fake = FakeScheduler()
     client = TestClient(app, raise_server_exceptions=False)

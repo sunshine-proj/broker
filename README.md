@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 7 are complete (the MVP). Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover. Phases 9 (data quality and reliability), 10 (monitoring and alerting) and 11 (security and production deployment) are complete. Phase 12 adds analytics (returns, moving averages, volatility, relative performance, currency conversion, yield spreads and curves), watchlists, instrument groups and portfolio tracking; see [ROADMAP.md](ROADMAP.md). For a production deployment, see [docs/deployment.md](docs/deployment.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
+**Status:** Phases 0 to 7 are complete (the MVP). Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover. Phases 9 (data quality and reliability), 10 (monitoring and alerting) and 11 (security and production deployment) are complete. Phase 12 adds user authentication (one login for the API and Grafana), analytics (returns, moving averages, volatility, relative performance, currency conversion, yield spreads and curves), watchlists, instrument groups and portfolio tracking; see [ROADMAP.md](ROADMAP.md). For a production deployment, see [docs/deployment.md](docs/deployment.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
 
 - **Twelve Data:** US stocks, ETFs, forex, spot gold.
 - **CoinGecko:** crypto prices and market data, averaged across exchanges.
@@ -122,14 +122,21 @@ curl http://localhost:8000/api/v1/health
 
 | Service | URL |
 | --- | --- |
+| Login | <http://localhost:8000/auth/login> |
 | FastAPI | <http://localhost:8000> |
-| API documentation | <http://localhost:8000/docs> |
+| API documentation | <http://localhost:8000/docs> (after signing in) |
 | Grafana | <http://localhost:3000> |
 | Prometheus | <http://localhost:9090> |
 | Alertmanager | <http://localhost:9093> |
 | Backend metrics | <http://localhost:8000/metrics> |
 
-Sign in to Grafana with `GRAFANA_ADMIN_USER` and the `GRAFANA_ADMIN_PASSWORD` from your `.env`.
+Create your account before using the API (see [Authentication](#authentication)):
+
+```bash
+docker compose run --rm migrate python -m app.cli user add yourname --admin
+```
+
+In development, sign in to Grafana with `GRAFANA_ADMIN_USER` and the `GRAFANA_ADMIN_PASSWORD` from your `.env`; in production Grafana uses the platform's accounts.
 
 All published ports bind to `127.0.0.1` by default, so PostgreSQL (`localhost:5432`) is reachable only from the host itself. In production only an HTTPS reverse proxy is published ([docs/deployment.md](docs/deployment.md)).
 
@@ -229,7 +236,8 @@ Base path: `/api/v1`. Interactive documentation: <http://localhost:8000/docs> (S
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| GET | `/health` | Health status |
+| GET | `/health` | Health status (no sign-in needed) |
+| GET | `/auth/me` | The signed-in user and role |
 | GET | `/instruments` | Instruments, with each provider's symbol. Filters: `asset_type`, `provider`, `search`, `enabled` |
 | GET | `/instruments/{id}` | Instrument details |
 | GET | `/prices/latest` | Latest value of each instrument from each provider. Filters: `asset_type`, `symbol`, `instrument_id`, `provider`, `observation_type` |
@@ -265,17 +273,19 @@ Conventions:
 - **Several providers:** values from different providers are never merged. Each comes back as its own item, with its `provider`, `freshness` (`real_time`, `delayed`, `end_of_day`) and `quote_kind` (`traded`, `indicative`, `reference`).
 - **Errors:** `{"error": {"code": "...", "message": "...", "details": {...}}}`. For example, `instrument_not_found` (404), `unknown_provider` (422), `invalid_time_range` (422), `validation_error` (422).
 
-Read endpoints need no authentication; they rely on the backend being bound to `127.0.0.1` (see `BIND_ADDRESS`).
+Every endpoint except `/health` needs a signed-in user: a browser session from the login page, or an API token. Without one the API answers `401` (`authentication_required`), and `/docs` sends you to the login page.
 
-Examples:
+Examples, with an API token (`python -m app.cli token create yourname laptop`):
 
 ```bash
-curl "http://localhost:8000/api/v1/prices/latest?asset_type=crypto"
-curl "http://localhost:8000/api/v1/forex/rates?base=EUR&quote=USD"
-curl "http://localhost:8000/api/v1/indicators/US_CPI/observations?include_revisions=true"
-curl "http://localhost:8000/api/v1/analytics/performance?list=core&currency=EUR"
-curl "http://localhost:8000/api/v1/groups/us_megacaps"
+export TOKEN=...   # printed once by `token create`
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/v1/auth/me"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/v1/prices/latest?asset_type=crypto"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/v1/forex/rates?base=EUR&quote=USD"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/v1/analytics/performance?list=core&currency=EUR"
 ```
+
+In Swagger UI (`/docs`), signing in first is enough; **Authorize** takes a token instead.
 
 ## Grafana
 
@@ -346,6 +356,8 @@ Application configuration is provided through environment variables, read from `
 | `SCHEDULER_ENABLED` | `false` (`true` in the backend container) | Run the collection jobs on their schedules in this process. Enable it in one process only. |
 | `ADMIN_API_KEY` | (empty) | Key for triggering a job through the API (`X-API-Key` header). Empty disables API triggers. |
 | `SEED_FILE` | `backend/seed.toml` | Seed file to apply; in Docker, a path inside the backend image |
+| `SESSION_HOURS` | `12` | How long a sign-in lasts |
+| `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `5`, `15` | Failed logins in a row that lock an account, and for how long |
 | `PORTFOLIO_FILE` | `portfolio/portfolio.toml` | Private portfolio holdings (see [Portfolio Tracking](#portfolio-tracking)); outside Docker only |
 | `PORTFOLIO_DIR` | `./portfolio` | Host directory mounted read-only into `migrate`, holding `portfolio.toml` |
 | `FRED_API_KEY` | (empty) | [FRED](https://fredaccount.stlouisfed.org/apikeys) API key. Required for FRED collection. |
@@ -401,6 +413,24 @@ Instruments carry metadata such as country, FIGI, ETF issuer and focus, pair bas
 docker compose run --rm migrate python -m app.cli search twelve_data "apple"
 ```
 
+## Authentication
+
+Only signed-in users can use the API, its documentation and, in production, Grafana (PRD FR-017). There is no sign-up: an administrator creates accounts on the command line.
+
+```bash
+docker compose run --rm migrate python -m app.cli user add alice --admin   # asks for a password
+docker compose run --rm migrate python -m app.cli user add bob             # a viewer
+docker compose run --rm migrate python -m app.cli token create bob script --days 90
+```
+
+- **Browsers** sign in at `/auth/login` and out at `/auth/logout`. A session lasts `SESSION_HOURS` (12).
+- **Scripts** send a personal API token: `Authorization: Bearer <token>`. It is printed once and stored only as a hash.
+- **Roles:** `viewer` and `admin` both read everything; `admin` also administers Grafana.
+- **Lockout:** 5 failed logins in a row lock an account for 15 minutes. `user password NAME` sets a new password and unlocks it.
+- **Grafana:** in production the proxy passes the signed-in user to Grafana, so there is one login for everything. In development Grafana keeps its own administrator login on localhost.
+
+All commands (`user add|password|role|enable|disable|list`, `token create|revoke|list`) are listed in [docs/deployment.md](docs/deployment.md#accounts).
+
 ## Watchlists and Groups
 
 Watchlists (`[[watchlists]]`, an ordered list of instruments to follow together) and groups (`[[groups]]`, instruments that belong together, with an equal-weighted performance) are defined in [backend/seed.toml](backend/seed.toml), like instruments, and are read-only in the API and Grafana. Yield spreads (`[[spreads]]`) are defined there too. A list removed from the file is disabled, not deleted.
@@ -420,7 +450,7 @@ The file is loaded at every start (`docker compose up`), and replaces every stor
 docker compose run --rm migrate python -m app.cli portfolio
 ```
 
-Each holding names an instrument of the seed file, the provider whose daily closes value it, a quantity, a cost basis and its currency, and optionally an acquisition date. Values are converted into the portfolio's base currency at each day's exchange rate. This tracks value only: it does not trade, rebalance or advise. **Everyone who can open the Portfolio dashboard or call the API sees the holdings**, and they are included in database backups.
+Each holding names an instrument of the seed file, the provider whose daily closes value it, a quantity, a cost basis and its currency, and optionally an acquisition date. Values are converted into the portfolio's base currency at each day's exchange rate. This tracks value only: it does not trade, rebalance or advise. **Every signed-in user sees the holdings**, and they are included in database backups.
 
 ## Collecting Data
 
