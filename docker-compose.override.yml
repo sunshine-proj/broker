@@ -1,0 +1,40 @@
+# Development: loaded automatically by `docker compose` together with
+# docker-compose.yml. Publishes every service's port on BIND_ADDRESS
+# (127.0.0.1 by default), so the database, API, Grafana, Prometheus and
+# Alertmanager can be reached from this machine only.
+#
+# Production does not use this file: COMPOSE_FILE in the production .env names
+# docker-compose.yml and docker-compose.prod.yml instead (docs/deployment.md).
+#
+# A port can only be published from a network with outside access, so the
+# services that are otherwise on the internal network alone also join `egress` here.
+
+services:
+  db:
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - internal
+      - egress
+
+  backend:
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
+
+  grafana:
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    networks:
+      - internal
+      - egress
+
+  prometheus:
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - internal
+      - egress
+
+  alertmanager:
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"

@@ -164,3 +164,53 @@ tests:
               summary: More than 5 % of API requests are failing.
               description: >-
                 16.67% of API requests answered with a server error over the last 5 minutes.
+
+  # A daily backup is overdue after 24 h + 6 h.
+  - interval: 1m
+    input_series:
+      - series: 'marketdata_backup_last_success_timestamp_seconds{job="backend", instance="backend:8000"}'
+        values: "0x2000"
+      - series: 'marketdata_backup_expected_interval_seconds{job="backend", instance="backend:8000"}'
+        values: "86400x2000"
+      - series: 'marketdata_backup_last_failed{job="backend", instance="backend:8000"}'
+        values: "0x1000 1x1000"
+    alert_rule_test:
+      - eval_time: 29h
+        alertname: BackupMissing
+      - eval_time: 31h
+        alertname: BackupMissing
+        exp_alerts:
+          - exp_labels: {severity: critical, job: backend, instance: "backend:8000"}
+            exp_annotations:
+              summary: No recent database backup.
+              description: >-
+                The last successful backup finished 1d 7h 0m 0s ago, more than its interval
+                plus six hours.
+      - eval_time: 16h
+        alertname: BackupFailed
+      - eval_time: 18h
+        alertname: BackupFailed
+        exp_alerts:
+          - exp_labels: {severity: warning, job: backend, instance: "backend:8000"}
+            exp_annotations:
+              summary: The last database backup failed.
+              description: >-
+                The newest backup run failed; the backup service retries after an hour. Its
+                error is in the database_backup table and `docker compose logs backup`.
+
+  - interval: 1m
+    input_series:
+      - series: 'marketdata_database_up{job="backend", instance="backend:8000"}'
+        values: "1x300"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: BackupNeverRun
+      - eval_time: 3h
+        alertname: BackupNeverRun
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: No database backup has ever succeeded.
+              description: >-
+                The database is up, but the backup service has not recorded a successful
+                backup. Check `docker compose ps backup` and its log.

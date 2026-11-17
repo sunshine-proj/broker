@@ -146,6 +146,7 @@ async def session(migrated_database: Settings) -> AsyncIterator[AsyncSession]:
 
 # Every table holding data; truncated by `empty_database`.
 DATA_TABLES = (
+    "database_backup",
     "data_quality_issue",
     "collector_execution",
     "collection_job",

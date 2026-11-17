@@ -414,12 +414,177 @@
       "id": 6
     },
     {
+      "type": "stat",
+      "title": "Last backup",
+      "description": "BackupMissing fires when it is older than the backup interval plus six hours.",
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "time() - marketdata_backup_last_success_timestamp_seconds",
+          "legendFormat": "Age of the last successful backup",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "id": 7
+    },
+    {
+      "type": "table",
+      "title": "Backups",
+      "description": "Made by the backup service; see docs/deployment.md, Backups.",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 16,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "healthy": {
+                  "color": "green",
+                  "index": 0
+                },
+                "success": {
+                  "color": "green",
+                  "index": 1
+                },
+                "degraded": {
+                  "color": "orange",
+                  "index": 2
+                },
+                "running": {
+                  "color": "blue",
+                  "index": 3
+                },
+                "down": {
+                  "color": "red",
+                  "index": 4
+                },
+                "failed": {
+                  "color": "red",
+                  "index": 5
+                },
+                "unknown": {
+                  "color": "text",
+                  "index": 6
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at AS \"Started\",\n       status AS \"Status\",\n       file_name AS \"File\",\n       size_bytes AS \"Size\",\n       EXTRACT(EPOCH FROM finished_at - started_at) AS \"Duration\",\n       error AS \"Error\"\n  FROM database_backup\n ORDER BY started_at DESC\n LIMIT 20\n"
+        }
+      ],
+      "id": 8
+    },
+    {
       "type": "timeseries",
       "title": "Backend process",
       "description": "",
       "gridPos": {
-        "x": 12,
-        "y": 18,
+        "x": 0,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -496,7 +661,7 @@
           "format": "time_series"
         }
       ],
-      "id": 7
+      "id": 9
     },
     {
       "type": "table",
@@ -504,7 +669,7 @@
       "description": "Age of the newest value per provider and kind of data.",
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 42,
         "w": 24,
         "h": 6
       },
@@ -577,7 +742,7 @@
           "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       series AS \"Series\",\n       last_observed_at AS \"Latest value at\",\n       last_ingested_at AS \"Collected at\",\n       age_seconds AS \"Age\"\n  FROM v_data_freshness\n WHERE true\n ORDER BY provider, asset_type, observation_type\n"
         }
       ],
-      "id": 8
+      "id": 10
     }
   ]
 }

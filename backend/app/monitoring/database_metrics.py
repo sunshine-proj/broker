@@ -47,12 +47,24 @@ class DataAge:
 
 
 @dataclass(frozen=True)
+class BackupState:
+    # The newest backup run, whatever its outcome.
+    last_failed: bool
+    interval_seconds: int
+    # The newest successful one, if any.
+    last_success: datetime | None
+    last_success_size_bytes: int | None
+
+
+@dataclass(frozen=True)
 class DatabaseSnapshot:
     providers: list[ProviderState] = field(default_factory=list)
     jobs: list[JobState] = field(default_factory=list)
     data_age: list[DataAge] = field(default_factory=list)
     open_issues: dict[str, int] = field(default_factory=dict)
     stale_series: dict[str, int] = field(default_factory=dict)
+    # None until the backup service has run once.
+    backup: BackupState | None = None
 
 
 async def read_snapshot(session: AsyncSession) -> DatabaseSnapshot:
@@ -120,7 +132,24 @@ async def read_snapshot(session: AsyncSession) -> DatabaseSnapshot:
         )
     ):
         stale_series[provider] = count
-    return DatabaseSnapshot(providers, jobs, data_age, open_issues, stale_series)
+    backup = None
+    latest = (
+        await session.execute(
+            sa.text(
+                """
+                SELECT b.status, b.interval_seconds, s.finished_at, s.size_bytes
+                  FROM (SELECT status, interval_seconds FROM database_backup
+                         ORDER BY started_at DESC LIMIT 1) b
+                  LEFT JOIN LATERAL (
+                       SELECT finished_at, size_bytes FROM database_backup
+                        WHERE status = 'success' ORDER BY started_at DESC LIMIT 1) s ON true
+                """
+            )
+        )
+    ).first()
+    if latest is not None:
+        backup = BackupState(latest[0] == "failed", latest[1], latest[2], latest[3])
+    return DatabaseSnapshot(providers, jobs, data_age, open_issues, stale_series, backup)
 
 
 class _SnapshotCollector(Collector):
@@ -207,6 +236,31 @@ class _SnapshotCollector(Collector):
         for provider, count in snapshot.stale_series.items():
             stale.add_metric([provider], count)
         yield stale
+
+        backup = snapshot.backup
+        if backup is None:
+            return
+        yield GaugeMetricFamily(
+            "marketdata_backup_last_failed",
+            "1 if the newest database backup run failed, else 0.",
+            value=1 if backup.last_failed else 0,
+        )
+        yield GaugeMetricFamily(
+            "marketdata_backup_expected_interval_seconds",
+            "How often the backup service makes a backup.",
+            value=backup.interval_seconds,
+        )
+        if backup.last_success is not None:
+            yield GaugeMetricFamily(
+                "marketdata_backup_last_success_timestamp_seconds",
+                "When the newest successful database backup finished (Unix time).",
+                value=backup.last_success.timestamp(),
+            )
+            yield GaugeMetricFamily(
+                "marketdata_backup_last_size_bytes",
+                "Size of the newest successful database backup.",
+                value=backup.last_success_size_bytes or 0,
+            )
 
 
 def render(snapshot: DatabaseSnapshot | None) -> bytes:

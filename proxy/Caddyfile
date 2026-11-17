@@ -1,0 +1,50 @@
+# Reverse proxy for production (docker-compose.prod.yml). See docs/deployment.md.
+{
+	email {$ACME_EMAIL}
+	# The admin API answers inside the container only (healthcheck).
+	admin 127.0.0.1:2019
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Metrics are for Prometheus on the internal network only.
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+
+	# Grafana, behind its own login, under /grafana/: Grafana's own front end
+	# uses /api/..., which therefore stays free for the REST API.
+	redir / /grafana/ 308
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	# The REST API and its documentation, behind basic authentication: the data
+	# may not be redistributed, so the API is for the people you give the
+	# credentials to. Manual job triggers also need ADMIN_API_KEY.
+	@api path /api/v1 /api/v1/* /docs /docs/* /openapi.json /redoc
+	handle @api {
+		basic_auth {
+			{$API_USERNAME} {$API_PASSWORD_HASH}
+		}
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		respond 404
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

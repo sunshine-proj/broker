@@ -125,3 +125,41 @@ groups:
           description: >-
             {{ $value }} series from {{ $labels.provider }} have nothing newer than their job
             allows. They are listed on the Data Quality dashboard.
+
+  - name: backups
+    rules:
+      - alert: BackupFailed
+        expr: marketdata_backup_last_failed == 1
+        labels:
+          severity: warning
+        annotations:
+          summary: The last database backup failed.
+          description: >-
+            The newest backup run failed; the backup service retries after an hour. Its error is
+            in the database_backup table and `docker compose logs backup`.
+
+      - alert: BackupMissing
+        expr: >-
+          (time() - marketdata_backup_last_success_timestamp_seconds)
+            > (marketdata_backup_expected_interval_seconds + 6 * 3600)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: No recent database backup.
+          description: >-
+            The last successful backup finished {{ $value | humanizeDuration }} ago, more than
+            its interval plus six hours.
+
+      - alert: BackupNeverRun
+        expr: >-
+          absent(marketdata_backup_last_success_timestamp_seconds)
+            and on() marketdata_database_up == 1
+        for: 2h
+        labels:
+          severity: critical
+        annotations:
+          summary: No database backup has ever succeeded.
+          description: >-
+            The database is up, but the backup service has not recorded a successful backup.
+            Check `docker compose ps backup` and its log.

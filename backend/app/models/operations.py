@@ -96,3 +96,24 @@ class CollectionJob(Base):
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=sa.func.now()
     )
+
+
+class DatabaseBackup(Base):
+    """One run of the backup service (see backup/run-backup.sh)."""
+
+    __tablename__ = "database_backup"
+    __table_args__ = (
+        sa.CheckConstraint("status IN ('success', 'failed')", name="status"),
+        sa.Index("ix_database_backup_started_at", "started_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=sa.text("gen_random_uuid()")
+    )
+    started_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    finished_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(sa.String(32))
+    file_name: Mapped[str | None] = mapped_column(sa.String(255))
+    size_bytes: Mapped[int | None] = mapped_column(sa.BigInteger)
+    interval_seconds: Mapped[int]
+    error: Mapped[str | None] = mapped_column(sa.Text)

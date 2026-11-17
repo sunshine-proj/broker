@@ -10,6 +10,7 @@ Usage:
     python -m app.cli jobs
     python -m app.cli run JOB
     python -m app.cli reader-role
+    python -m app.cli app-role
     python -m app.cli storage-policies
 """
 
@@ -22,6 +23,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,7 +52,7 @@ from app.repositories.quality import SqlQualityRepository
 from app.services.collection import CollectionOutcome, CollectionService
 from app.services.ingestion import IngestionService
 from app.services.provider_health import ProviderHealthService
-from app.services.reader_role import ReaderRoleError, ensure_reader_role
+from app.services.reader_role import ReaderRoleError, ensure_app_role, ensure_reader_role
 from app.services.seed import SeedError, apply_seed, load_seed_file
 from app.services.storage_policies import StoragePolicies, apply_storage_policies
 
@@ -215,14 +217,31 @@ async def reader_role(settings: Settings) -> None:
     """Create or update Grafana's read-only role and grant it read access."""
     if settings.grafana_db_password is None:
         raise CommandError("GRAFANA_DB_PASSWORD is not set")
+    await _ensure_role(
+        settings,
+        ensure_reader_role,
+        settings.grafana_db_user,
+        settings.grafana_db_password.get_secret_value(),
+    )
+
+
+async def app_role(settings: Settings) -> None:
+    """Create or update the backend's role: read, insert and update."""
+    if settings.backend_db_password is None:
+        raise CommandError("BACKEND_DB_PASSWORD is not set")
+    await _ensure_role(
+        settings,
+        ensure_app_role,
+        settings.backend_db_user,
+        settings.backend_db_password.get_secret_value(),
+    )
+
+
+async def _ensure_role(settings: Settings, ensure: Any, name: str, password: str) -> None:
     engine = create_engine(settings)
     try:
         async with engine.begin() as connection:
-            await ensure_reader_role(
-                connection,
-                settings.grafana_db_user,
-                settings.grafana_db_password.get_secret_value(),
-            )
+            await ensure(connection, name, password)
     except ReaderRoleError as exc:
         raise CommandError(str(exc)) from exc
     finally:
@@ -259,6 +278,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("jobs", help="list collection jobs and their status")
     commands.add_parser("reader-role", help="set up the read-only database role for Grafana")
+    commands.add_parser("app-role", help="set up the backend's database role")
     commands.add_parser("storage-policies", help="apply the compression and retention policies")
     run_parser = commands.add_parser("run", help="run a collection job now")
     run_parser.add_argument("job")
@@ -322,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(list_jobs(settings))
         elif args.command == "reader-role":
             asyncio.run(reader_role(settings))
+        elif args.command == "app-role":
+            asyncio.run(app_role(settings))
         elif args.command == "storage-policies":
             asyncio.run(storage_policies(settings))
         elif args.command == "run":

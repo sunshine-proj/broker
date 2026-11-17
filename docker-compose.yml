@@ -1,12 +1,34 @@
 name: market-data-platform
 
+# The base stack. It publishes no ports: in development,
+# docker-compose.override.yml (loaded automatically) publishes them on
+# BIND_ADDRESS; in production, docker-compose.prod.yml adds the HTTPS reverse
+# proxy, the only way in. See docs/deployment.md.
+#
+# Networks: `internal` has no route to the outside world. The database and
+# Prometheus are only on it. Services that must reach the internet (providers,
+# alert notifications) are also on `egress`.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Hardening shared by the services that allow it.
+x-hardened: &hardened
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 # Environment shared by the services that run backend code.
 x-backend-environment: &backend-environment
   POSTGRES_HOST: db
   POSTGRES_PORT: 5432
-  POSTGRES_DB: ${POSTGRES_DB}
-  POSTGRES_USER: ${POSTGRES_USER}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+  POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: ${LOG_FORMAT:-json}
   # Provider credentials. Optional: a provider without its key reports itself as down.
@@ -16,7 +38,9 @@ x-backend-environment: &backend-environment
 
 services:
   db:
-    image: timescale/timescaledb:2.32.0-pg17
+    # TimescaleDB with the latest Alpine security updates (db/Dockerfile).
+    build: ./db
+    image: market-data-platform-db:2.32.0-pg17
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
@@ -24,21 +48,26 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - db_data:/var/lib/postgresql/data
-    ports:
-      # Loopback only by default: the database is not publicly exposed.
-      - "${BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
+    # Time for a clean shutdown (a checkpoint) before Docker kills it.
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 2g}
+    logging: *logging
     networks:
       - internal
 
   # Applies database migrations, the seed file and the storage policies, and sets
-  # up Grafana's read-only database role, then exits. The backend and Grafana
-  # wait for it.
+  # up the backend's and Grafana's database roles, then exits. The backend and
+  # Grafana wait for it. It connects as the database owner.
   migrate:
     build: ./backend
     command:
@@ -46,7 +75,8 @@ services:
       - -c
       - >-
         alembic upgrade head && python -m app.cli seed
-        && python -m app.cli storage-policies && python -m app.cli reader-role
+        && python -m app.cli storage-policies
+        && python -m app.cli app-role && python -m app.cli reader-role
     restart: "no"
     environment:
       <<: *backend-environment
@@ -55,19 +85,35 @@ services:
       COMPRESS_AFTER_DAYS: ${COMPRESS_AFTER_DAYS-30}
       OBSERVATION_RETENTION_DAYS: ${OBSERVATION_RETENTION_DAYS:-}
       CANDLE_RETENTION_DAYS: ${CANDLE_RETENTION_DAYS:-}
+      BACKEND_DB_USER: ${BACKEND_DB_USER:-marketdata_app}
+      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:?set BACKEND_DB_PASSWORD in .env}
       GRAFANA_DB_USER: ${GRAFANA_DB_USER:-grafana_reader}
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
     depends_on:
       db:
         condition: service_healthy
+    <<: *hardened
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 1g}
+    logging: *logging
     networks:
       - internal
+      # `docker compose run migrate python -m app.cli collect ...` calls providers.
+      - egress
 
   backend:
     build: ./backend
     restart: unless-stopped
     environment:
       <<: *backend-environment
+      # The backend connects as its own role: read, insert, update; no deletes,
+      # no schema changes (PRD section 6, Security).
+      POSTGRES_USER: ${BACKEND_DB_USER:-marketdata_app}
+      POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD:?set BACKEND_DB_PASSWORD in .env}
       # The backend runs the collection jobs on their schedules. Run one backend only.
       SCHEDULER_ENABLED: "true"
       # Enables POST /api/v1/collectors/{job}/run when set.
@@ -77,8 +123,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     healthcheck:
       test:
         - CMD
@@ -89,8 +133,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    # Lets a running collection finish its current request.
+    stop_grace_period: 30s
+    <<: *hardened
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 1g}
+    logging: *logging
     networks:
       - internal
+      - egress
 
   grafana:
     image: grafana/grafana:13.3.1
@@ -98,14 +153,29 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?set GRAFANA_ADMIN_USER in .env}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      # Accounts are created by an administrator only; no anonymous access.
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # The data may not be redistributed (provider licences): no public or
+      # external sharing of dashboards and snapshots.
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      # No calls home.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
       # Read by the datasource provisioning file.
       POSTGRES_DB: ${POSTGRES_DB}
       GRAFANA_DB_USER: ${GRAFANA_DB_USER:-grafana_reader}
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
     volumes:
       - grafana_data:/var/lib/grafana
-      # Datasource and dashboards come from version control.
+      # Datasources and dashboards come from version control.
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana-dashboards:ro
     depends_on:
@@ -116,14 +186,17 @@ services:
         condition: service_completed_successfully
       prometheus:
         condition: service_started
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
+    <<: *hardened
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 1g}
+    logging: *logging
     networks:
       - internal
 
@@ -138,14 +211,18 @@ services:
     volumes:
       - prometheus_data:/prometheus
       - ./prometheus:/etc/prometheus:ro
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9090/-/healthy || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+    <<: *hardened
+    read_only: true
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 1g}
+    logging: *logging
     networks:
       - internal
 
@@ -160,14 +237,56 @@ services:
     volumes:
       - alertmanager_data:/alertmanager
       - ./alertmanager:/etc/alertmanager:ro
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9093/-/healthy || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+    <<: *hardened
+    read_only: true
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256m}
+    logging: *logging
+    networks:
+      - internal
+      # Notifications (email, webhooks) go out from here.
+      - egress
+
+  # Backs up the database every BACKUP_INTERVAL_HOURS into BACKUP_DIR and records
+  # each run in the database_backup table (docs/deployment.md, "Backups").
+  backup:
+    # The server's image, so pg_dump matches the server.
+    build: ./db
+    image: market-data-platform-db:2.32.0-pg17
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/backup/loop.sh"]
+    # The owner of BACKUP_DIR on the host.
+    user: "${BACKUP_UID:-1000}:${BACKUP_GID:-1000}"
+    environment:
+      PGHOST: db
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+    volumes:
+      - ./backup:/backup:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    <<: *hardened
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 512m}
+    logging: *logging
     networks:
       - internal
 
@@ -179,3 +298,5 @@ volumes:
 
 networks:
   internal:
+    internal: true
+  egress:

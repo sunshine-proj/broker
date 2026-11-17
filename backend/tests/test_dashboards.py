@@ -289,6 +289,7 @@ PROMETHEUS_METRICS = {
     "marketdata_collector_runs_total",
     "marketdata_job_last_success_timestamp_seconds",
     "marketdata_job_expected_interval_seconds",
+    "marketdata_backup_last_success_timestamp_seconds",
 }
 
 
@@ -317,6 +318,11 @@ def test_prometheus_queries_use_metrics_the_platform_exposes() -> None:
     defined = set()
     for family in REGISTRY.collect():
         defined |= {family.name, f"{family.name}_total", f"{family.name}_bucket"}
-    snapshot = database_metrics.render(database_metrics.DatabaseSnapshot()).decode()
+    from datetime import UTC, datetime
+
+    everything = database_metrics.DatabaseSnapshot(
+        backup=database_metrics.BackupState(False, 86400, datetime.now(UTC), 1)
+    )
+    snapshot = database_metrics.render(everything).decode()
     defined |= {line.split()[2] for line in snapshot.splitlines() if line.startswith("# TYPE")}
     assert {name for name in used if name.startswith("marketdata_")} <= defined

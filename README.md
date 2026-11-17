@@ -2,7 +2,7 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 7 are complete (the MVP). Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover. Phases 9 (data quality and reliability) and 10 (monitoring and alerting) are complete; see [ROADMAP.md](ROADMAP.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
+**Status:** Phases 0 to 7 are complete (the MVP). Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover. Phases 9 (data quality and reliability), 10 (monitoring and alerting) and 11 (security and production deployment) are complete; see [ROADMAP.md](ROADMAP.md). For a production deployment, see [docs/deployment.md](docs/deployment.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
 
 - **Twelve Data:** US stocks, ETFs, forex, spot gold.
 - **CoinGecko:** crypto prices and market data, averaged across exchanges.
@@ -92,11 +92,14 @@ cd <repository-directory>
 
 ### 2. Configure the environment
 
+Create `.env` with random passwords, then add the provider keys you have (`TWELVEDATA_API_KEY` and others):
+
 ```bash
-cp .env.example .env
+python3 scripts/generate_env.py > .env
+chmod 600 .env
 ```
 
-Configure the required credentials and application settings.
+Or copy `.env.example` and fill in every empty password; Docker Compose refuses to start while a required one is empty. `.env.example` ships without any password.
 
 ### 3. Start services
 
@@ -104,7 +107,7 @@ Configure the required credentials and application settings.
 docker compose up -d --build
 ```
 
-Database migrations and the seed file are applied automatically by the one-shot `migrate` service before the backend starts.
+Database migrations and the seed file are applied automatically by the one-shot `migrate` service before the backend starts. In development, `docker-compose.override.yml` (loaded automatically) publishes the ports below; `docker-compose.yml` itself publishes none.
 
 ### 4. Check service status
 
@@ -126,9 +129,9 @@ curl http://localhost:8000/api/v1/health
 | Alertmanager | <http://localhost:9093> |
 | Backend metrics | <http://localhost:8000/metrics> |
 
-Default development credentials are documented in `.env.example` (Grafana: `admin` / `change_me`) and must be changed before deployment.
+Sign in to Grafana with `GRAFANA_ADMIN_USER` and the `GRAFANA_ADMIN_PASSWORD` from your `.env`.
 
-All published ports bind to `127.0.0.1` by default, so PostgreSQL (`localhost:5432`) is reachable only from the host itself.
+All published ports bind to `127.0.0.1` by default, so PostgreSQL (`localhost:5432`) is reachable only from the host itself. In production only an HTTPS reverse proxy is published ([docs/deployment.md](docs/deployment.md)).
 
 Data is stored in the named volumes `db_data`, `grafana_data`, `prometheus_data` and `alertmanager_data` and survives `docker compose down`. Use `docker compose down -v` only if you intend to delete it.
 
@@ -201,12 +204,22 @@ grafana/
     provisioning/   # datasources and dashboard provider
 prometheus/         # scrape configuration, alert rules and their tests
 alertmanager/       # alert routing; no notification channel by default
+proxy/              # Caddyfile of the production HTTPS reverse proxy
+db/                 # database image: TimescaleDB with security updates
+backup/             # the backup service's scripts
+backups/            # database backups (not in version control)
+docker-compose.yml           # the stack; publishes no ports
+docker-compose.override.yml  # development: publishes ports on 127.0.0.1
+docker-compose.prod.yml      # production: adds the HTTPS reverse proxy
 
 scripts/            # check.sh, check-docker.sh, check_monitoring.sh,
-                    # build_dashboards.py, check_dashboards.py
+                    # build_dashboards.py, check_dashboards.py,
+                    # generate_env.py, check_env.py, restore.sh,
+                    # test_backup_restore.sh, smoke_test.sh
 docs/
     architecture.md
     monitoring.md   # metrics, alerts and notifications
+    deployment.md   # production: configuration, HTTPS, access, backups, upgrades
     providers/      # integration requirements, and one document per provider (from Phase 4)
 ```
 
@@ -309,7 +322,7 @@ Application configuration is provided through environment variables, read from `
 | `POSTGRES_PORT` | `5432` | Host port for PostgreSQL |
 | `POSTGRES_DB` | `marketdata` | Database name |
 | `POSTGRES_USER` | `marketdata` | Database user |
-| `POSTGRES_PASSWORD` | `change_me` | Database password (required) |
+| `POSTGRES_PASSWORD` | (empty) | Database owner's password (required). Used by migrations, the seed file, backups and the command line; the backend has its own role. |
 | `POSTGRES_TEST_DB` | `marketdata_test` | Database used only by integration tests |
 | `POSTGRES_HOST` | `localhost` | Database host; Docker Compose sets it to `db` for the backend |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
@@ -321,9 +334,15 @@ Application configuration is provided through environment variables, read from `
 | `COINGECKO_API_KEY` | (empty) | Optional [CoinGecko](https://www.coingecko.com/en/api) Demo key. Without it, CoinGecko's keyless API is used, at about 5 calls a minute. |
 | `TWELVEDATA_API_KEY` | (empty) | [Twelve Data](https://twelvedata.com/pricing) API key. The free Basic plan is enough for the default instruments. Without it, Twelve Data collection fails and is reported as a provider failure. |
 | `GRAFANA_ADMIN_USER` | `admin` | Grafana administrator user |
-| `GRAFANA_ADMIN_PASSWORD` | `change_me` | Grafana administrator password (required) |
+| `GRAFANA_ADMIN_PASSWORD` | (empty) | Grafana administrator password (required) |
 | `GRAFANA_DB_USER` | `grafana_reader` | Read-only database role Grafana connects with |
-| `GRAFANA_DB_PASSWORD` | `change_me_reader` | Its password (required). Changing it updates the role on the next start. |
+| `GRAFANA_DB_PASSWORD` | (empty) | Its password (required). Changing it updates the role on the next start. |
+| `BACKEND_DB_USER` | `marketdata_app` | The backend's database role: read, insert, update only |
+| `BACKEND_DB_PASSWORD` | (empty) | Its password (required); kept up to date by `migrate` |
+| `BACKUP_DIR` | `./backups` | Where the backup service writes database backups |
+| `BACKUP_INTERVAL_HOURS` | `24` | Hours between backups |
+| `BACKUP_KEEP` | `7` | Backups kept |
+| `BACKUP_UID`, `BACKUP_GID` | `1000` | Owner of `BACKUP_DIR` on the host |
 | `COMPRESS_AFTER_DAYS` | `30` | Compress market observations and candles older than this many days. Empty: never. |
 | `OBSERVATION_RETENTION_DAYS` | (empty) | Drop market observations older than this many days, for good. Empty keeps everything. |
 | `CANDLE_RETENTION_DAYS` | (empty) | The same for candles. Economic observations are never dropped. |
@@ -331,7 +350,7 @@ Application configuration is provided through environment variables, read from `
 | `ALERTMANAGER_PORT` | `9093` | Host port for Alertmanager |
 | `PROMETHEUS_RETENTION` | `15d` | How long Prometheus keeps metrics |
 
-Database and Grafana credentials are applied when their volumes are first created; changing them later in `.env` does not alter an existing volume.
+Database and Grafana credentials are applied when their volumes are first created; changing them later in `.env` does not alter an existing volume. The production-only settings (domain, HTTPS, the API account) are described in [docs/deployment.md](docs/deployment.md).
 
 The storage settings are applied by the `migrate` service at every start (`python -m app.cli storage-policies`), so changing one and restarting is enough. A provider's timeouts, retries, rate limits and the name of its key variable are set in `backend/seed.toml`; adding a provider is described in [docs/providers/README.md](docs/providers/README.md). Credentials are read from the environment only and are never stored in the database.
 
@@ -465,6 +484,10 @@ Check the Prometheus and Alertmanager configuration and unit-test the alert rule
 ```bash
 scripts/check_monitoring.sh
 ```
+
+## Backups
+
+The `backup` service backs up the database once a day into `./backups` and keeps the last 7, each checked and checksummed; failures and missed backups raise alerts. Copy them off the machine. Restore one into a new database with `scripts/restore.sh FILE [DATABASE]`, and test the whole cycle with `scripts/test_backup_restore.sh`. The details, including restoring the live database, are in [docs/deployment.md](docs/deployment.md#backups).
 
 ## Restart and Recovery
 

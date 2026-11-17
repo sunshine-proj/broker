@@ -12,6 +12,8 @@ backend /metrics --scrape every 30 s--> Prometheus --alert rules--> Alertmanager
      PostgreSQL
 ```
 
+These addresses are for development, where `docker-compose.override.yml` publishes them. In production, Prometheus and Alertmanager are not published; see [deployment.md](deployment.md#prometheus-and-alertmanager).
+
 | Service | Address (from the host) | Configuration |
 | --- | --- | --- |
 | Backend metrics | <http://localhost:8000/metrics> | `backend/app/monitoring/` |
@@ -61,6 +63,10 @@ The backend reads these at each scrape, with a 10-second limit. If it cannot rea
 | `marketdata_data_age_seconds` | `provider`, `asset_type`, `observation_type` | Age of the newest value |
 | `marketdata_quality_open_issues` | `kind` | Open data-quality issues |
 | `marketdata_stale_series` | `provider` | Series with an open stale issue |
+| `marketdata_backup_last_success_timestamp_seconds` | | When the newest successful database backup finished. Absent until one has. |
+| `marketdata_backup_last_size_bytes` | | Its size |
+| `marketdata_backup_last_failed` | | 1 if the newest backup run failed |
+| `marketdata_backup_expected_interval_seconds` | | `BACKUP_INTERVAL_HOURS`, in seconds |
 
 ## Alerts
 
@@ -124,6 +130,20 @@ The rules are in `prometheus/alerts.yml`. Each alert has a `severity` label: `cr
 - **Fires when:** a provider has series with an open stale issue (PRD FR-012) for 30 minutes. Severity warning.
 - **Action:** the series are listed on the Data Quality dashboard. Stale data with a healthy provider often means the provider has stopped updating a symbol; check it with `python -m app.cli search`.
 
+### BackupFailed
+
+- **Fires when:** the newest backup run failed. Severity warning.
+- **Action:** the error is in `docker compose logs backup` and the `database_backup` table, and on the System Monitoring dashboard. Common causes are a full disk at `BACKUP_DIR`, and `BACKUP_UID` not owning it. The service retries after an hour.
+
+### BackupMissing
+
+- **Fires when:** the last successful backup is older than the backup interval plus six hours, for 10 minutes. Severity critical.
+- **Action:** check that the backup service is running (`docker compose ps backup`) and that its runs succeed. Make one by hand as in [deployment.md](deployment.md#backups).
+
+### BackupNeverRun
+
+- **Fires when:** the database is up but no backup has ever succeeded, for 2 hours. Severity critical. This covers a new installation whose backup service never started.
+
 ## Notifications
 
 Alertmanager is configured without a notification channel: alerts are listed in Alertmanager (<http://localhost:9093>), in Prometheus (Alerts tab), and on the System Monitoring and Collection Failures dashboards.
@@ -161,6 +181,7 @@ Mount the secret file into the `alertmanager` service and keep it out of version
 
 - Alerts are grouped by alert name, provider and job, sent 30 seconds after the first one fires, and repeated every 4 hours while they fire.
 - While `DatabaseDown` fires, the collection, provider and freshness alerts it causes are inhibited.
+- Tested end to end on 2026-11-17: with the database stopped, `DatabaseDown` reached Alertmanager 1 minute 46 seconds later, and resolved as soon as it was back.
 
 ## Changing Alerts
 

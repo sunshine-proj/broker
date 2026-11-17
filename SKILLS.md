@@ -107,8 +107,10 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 ## 10. Docker
 
 - Pin image versions.
-- Every service has a health check and a restart policy.
-- Published ports bind to `BIND_ADDRESS`, which defaults to loopback.
+- Every service has a restart policy, a memory and CPU limit, and the shared log rotation (`logging: *logging`); every long-running service has a health check.
+- Harden services with `x-hardened` (no new privileges, no capabilities) and `read_only: true` with a `/tmp` tmpfs, unless the image cannot run that way; say why in a comment.
+- `docker-compose.yml` publishes no ports. Development ports go in `docker-compose.override.yml`, bound to `BIND_ADDRESS`; production exposure goes through the proxy in `docker-compose.prod.yml`.
+- Put a service on the `internal` network, and on `egress` only if it must reach the internet.
 - Persistent data lives in named volumes.
 
 ## 11. Testing
@@ -124,7 +126,8 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 
 ## 12. Security
 
-- Secrets come from environment variables only, and appear in `.env.example` as empty or placeholder values.
+- Secrets come from environment variables only, and appear in `.env.example` as empty values. A new secret is added to `GENERATED` in `scripts/generate_env.py` and to the checks in `scripts/check_env.py`.
+- The running backend connects as its restricted role (read, insert, update). Code that needs more belongs in migrations, the seed file or the command line, which run as the owner.
 - Use HTTPS for all provider connections.
 - Treat provider responses as untrusted input.
 

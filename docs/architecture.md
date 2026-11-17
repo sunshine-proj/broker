@@ -75,7 +75,7 @@ Schema changes are made only through Alembic revisions in `backend/migrations/ve
 
 - `migrations/env.py` builds the database URL from `Settings`; no URL is stored in `alembic.ini`.
 - In Docker Compose, the one-shot `migrate` service runs `alembic upgrade head`, applies the seed file, applies the storage policies and sets up Grafana's role, and the backend starts only after all succeed.
-- Revision `0001` enables the TimescaleDB extension; `0002` creates the data model; `0003` restricts candle intervals to the normalized set; `0004` adds collection jobs, execution triggers and exchange sessions; `0005` adds the reporting views; `0006` adds data-quality issues, the `quality` and `backfill` job kinds and their views; `0007` enables compression of the hypertables.
+- Revision `0001` enables the TimescaleDB extension; `0002` creates the data model; `0003` restricts candle intervals to the normalized set; `0004` adds collection jobs, execution triggers and exchange sessions; `0005` adds the reporting views; `0006` adds data-quality issues, the `quality` and `backfill` job kinds and their views; `0007` enables compression of the hypertables; `0008` adds the backup record.
 - A migration spells out its own enumeration values instead of importing them, so it does not change when the application does.
 - An integration test compares the models with the migrated schema and fails on any difference, so a model change without a migration is caught. A second test compares check-constraint names exactly, which the first does not cover.
 
@@ -484,6 +484,23 @@ Specified in PRD FR-013; operated as described in [monitoring.md](monitoring.md)
 - **Label names:** job names are labelled `job_name`; Prometheus reserves `job` for the scrape target.
 - **Scope:** the process metrics cover the backend process only. Runs from the command line reach Prometheus through the database-derived job metrics.
 - **Checks:** `scripts/check_monitoring.sh` runs `promtool check config`, `promtool test rules` and `amtool check-config` in the images Compose uses; CI runs it too. A test checks that every metric the dashboards query is one the backend defines.
+
+## Deployment
+
+Operated as described in [deployment.md](deployment.md).
+
+| File | Role |
+| --- | --- |
+| `docker-compose.yml` | The stack. No published ports; an `internal` network without a route out, and `egress` for the services that need the internet. Limits, log rotation and hardening. |
+| `docker-compose.override.yml` | Development, loaded automatically: publishes the ports on `BIND_ADDRESS` |
+| `docker-compose.prod.yml` | Production, selected by `COMPOSE_FILE`: the Caddy reverse proxy (`proxy/Caddyfile`) and Grafana's HTTPS settings |
+| `db/Dockerfile` | TimescaleDB with Alpine's security updates, for the database and the backup service |
+| `backup/` | The backup service: `loop.sh` schedules, `run-backup.sh` dumps, verifies, checksums, prunes and records |
+| `scripts/generate_env.py`, `check_env.py` | Create a `.env` with random secrets; check one for production |
+| `scripts/restore.sh`, `test_backup_restore.sh`, `smoke_test.sh` | Restore a backup; test backup and restore; verify a production deployment from outside |
+
+- **Roles:** `services/reader_role.py` sets up both restricted roles: `ensure_app_role` for the backend (`python -m app.cli app-role`) and `ensure_reader_role` for Grafana. An integration test runs collection, quality checks, backfill, the API and `/metrics` as the backend's role, and checks that it cannot delete, truncate or change the schema.
+- **Backups** are recorded in `database_backup` (migration `0008`), which feeds the backup metrics and alerts.
 
 ## Testing
 

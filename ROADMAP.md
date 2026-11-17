@@ -382,21 +382,21 @@ Delivered beyond the list: a US Treasury adapter (the primary source of the yiel
 
 ### Tasks
 
-- [ ] Review secret management.
-- [ ] Remove development credentials.
-- [ ] Restrict database network access.
-- [ ] Configure production environment variables.
-- [ ] Configure secure Grafana access.
-- [ ] Review API exposure, including the unauthenticated read endpoints.
-- [ ] Configure HTTPS through reverse proxy.
-- [ ] Add container resource limits.
-- [ ] Review restart policies.
-- [ ] Configure database backups.
-- [ ] Test restoring from a backup.
-- [ ] Add deployment documentation.
-- [ ] Perform dependency security review.
-- [ ] Perform final integration tests.
-- [ ] Perform deployment verification.
+- [x] Review secret management.
+- [x] Remove development credentials.
+- [x] Restrict database network access.
+- [x] Configure production environment variables.
+- [x] Configure secure Grafana access.
+- [x] Review API exposure, including the unauthenticated read endpoints.
+- [x] Configure HTTPS through reverse proxy.
+- [x] Add container resource limits.
+- [x] Review restart policies.
+- [x] Configure database backups.
+- [x] Test restoring from a backup.
+- [x] Add deployment documentation.
+- [x] Perform dependency security review.
+- [x] Perform final integration tests.
+- [x] Perform deployment verification.
 
 ### Acceptance Criteria
 

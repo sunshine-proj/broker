@@ -21,3 +21,7 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+
+# Database backups (they contain every stored value)
+backups/*
+!backups/.gitkeep

@@ -431,6 +431,50 @@ New dependency: prometheus-client 0.26.0.
 
 
 
+Phase 11 is done: all 15 roadmap tasks are ticked. I deployed the production configuration as a separate stack on this machine, verified it from outside, then removed it; your development stack is untouched. 595 tests pass, Ruff is clean, all 14 alert rules pass their tests, and every query on the 14 dashboards runs through Grafana.
+
+What was verified
+Production stack: all 15 smoke checks pass:
+HTTPS, with HSTS and the other security headers;
+Grafana answering and asking for a login;
+the API refusing requests without credentials or with a wrong password, and answering with them;
+/metrics and unknown paths not served;
+manual job triggers still needing the admin key;
+plain HTTP redirected to HTTPS.
+Isolation: the database and Prometheus can't resolve outside hosts, while the backend reaches providers. Only the proxy publishes ports.
+Grafana: anonymous access, sign-up, public dashboards and external snapshots are off; cookies are secure and same-site strict.
+Alerting, now confirmed live: stopping the test stack's database made DatabaseDown reach Alertmanager 1 minute 46 seconds later, and it resolved as soon as the database was back.
+Backup and restore: scripts/test_backup_restore.sh passes. It checks entity tables row for row, the 28,397 observations stored before the backup, the schema version, the hypertables and the compressed chunks.
+What changed
+Compose layout:
+docker-compose.yml now publishes no ports, and puts the database and Prometheus on a network with no route outside.
+docker-compose.override.yml loads automatically in development and publishes the ports on localhost, so your workflow is the same.
+docker-compose.prod.yml adds Caddy for HTTPS (Let's Encrypt).
+Production routing: Grafana is at /grafana/, and the REST API is at /api/v1 behind basic authentication. While testing I found that my first routing would have broken Grafana entirely, because Grafana's own front end uses /api/. Moving Grafana under /grafana/ fixed it.
+Least-privilege database role: the backend now connects as marketdata_app, which can read, insert and update but not delete, truncate or change the schema. A test runs collection, quality checks, backfill, the API and metrics as that role.
+Backups: a new service makes a daily backup, verified and checksummed, and records each run. Three new alerts cover a failed, overdue or never-run backup.
+Containers: memory and CPU limits, log rotation, no-new-privileges, and dropped capabilities and read-only filesystems wherever the image allows.
+Development credentials removed: .env.example ships no passwords. scripts/generate_env.py creates a .env with random secrets, and scripts/check_env.py rejects a production .env with weak, reused or placeholder secrets.
+Security review:
+pip-audit finds no known vulnerabilities in the Python packages.
+Trivy found fixable OS vulnerabilities in the backend and database images; both now apply security updates. The backend image is clean.
+Caddy moved to 2.11.9, a 12-day-old release, which I chose over my usual two-week rule because it fixes vulnerabilities.
+What remains is listed in docs/deployment.md as accepted risk: gosu in the database image, bundled Grafana plugins this platform doesn't use, and golang.org/x/net in Prometheus and Alertmanager.
+Changes to your setup
+Development .env: I added BACKEND_DB_PASSWORD (random) and the BACKUP_* settings, and set the file to mode 600. Your other values are unchanged. It still has the change_me development passwords, which check_env.py would reject for production; generate a fresh .env for a real deployment.
+Backups: the backup service runs in development too, writing to ./backups. That directory is git-ignored.
+Before a real deployment
+Server: you need a server, a DNS name and a firewall, and the backups must be copied off the server. docs/deployment.md covers all of it.
+Alert notifications: still not configured, so nobody is notified yet.
+Twelve Data licence: whether its "non-display" free plan allows showing the data on dashboards is still unresolved.
+
+
+
+===========================================
+
+
+
+
 
 
 

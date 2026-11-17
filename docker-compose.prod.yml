@@ -1,0 +1,78 @@
+# Production: used instead of docker-compose.override.yml, by setting in .env
+#
+#     COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#
+# Adds the reverse proxy, the only published service. It terminates HTTPS
+# (certificates from Let's Encrypt, renewed automatically) for DOMAIN and serves:
+#
+#   https://DOMAIN/grafana/     Grafana, behind Grafana's own login (/ redirects there)
+#   https://DOMAIN/api/v1/...   the REST API, and /docs its documentation, behind HTTP
+#                               basic authentication (API_USERNAME, API_PASSWORD_HASH)
+#
+# The database, Prometheus, Alertmanager and the backend's /metrics are not
+# reachable from outside. See docs/deployment.md.
+
+services:
+  proxy:
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+      API_USERNAME: ${API_USERNAME:?set API_USERNAME in .env}
+      API_PASSWORD_HASH: ${API_PASSWORD_HASH:?set API_PASSWORD_HASH in .env}
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_HTTPS_PORT:-443}:443"
+      - "${PROXY_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      grafana:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Binding ports 80 and 443 inside the container.
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 256m}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - internal
+      - egress
+
+  grafana:
+    environment:
+      GF_SERVER_DOMAIN: ${DOMAIN}
+      GF_SERVER_ROOT_URL: https://${DOMAIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY: "true"
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY_MAX_AGE_SECONDS: "31536000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/grafana/api/health || exit 1"]
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1333,6 +1333,43 @@ def system_monitoring() -> dict[str, Any]:
                 height=8,
                 unit="s",
             ),
+            prom_stat(
+                "Last backup",
+                prom(
+                    "time() - marketdata_backup_last_success_timestamp_seconds",
+                    "Age of the last successful backup",
+                ),
+                width=8,
+                height=8,
+                unit="s",
+                custom=None,
+                overrides=[],
+                description="BackupMissing fires when it is older than the backup interval "
+                "plus six hours.",
+            ),
+            table(
+                "Backups",
+                """
+                SELECT started_at AS "Started",
+                       status AS "Status",
+                       file_name AS "File",
+                       size_bytes AS "Size",
+                       EXTRACT(EPOCH FROM finished_at - started_at) AS "Duration",
+                       error AS "Error"
+                  FROM database_backup
+                 ORDER BY started_at DESC
+                 LIMIT 20
+                """,
+                width=16,
+                height=8,
+                mappings=STATUS_COLOURS,
+                overrides=[
+                    override("Status", custom__cellOptions={"type": "color-text"}),
+                    override("Size", unit="bytes"),
+                    override("Duration", unit="s", decimals=0),
+                ],
+                description="Made by the backup service; see docs/deployment.md, Backups.",
+            ),
             prom_chart(
                 "Backend process",
                 prom('process_resident_memory_bytes{job="backend"}', "Memory", ref="A"),

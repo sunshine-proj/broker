@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # Read-only database role for Grafana, set up by `python -m app.cli reader-role`.
     grafana_db_user: str = "grafana_reader"
     grafana_db_password: SecretStr | None = None
+    # The backend's own role (read, insert, update), set up by `python -m app.cli app-role`.
+    # The backend container connects as it; migrations and the CLI use POSTGRES_USER.
+    backend_db_user: str = "marketdata_app"
+    backend_db_password: SecretStr | None = None
 
     # Time-series storage (PRD section 6, Retention), applied by
     # `python -m app.cli storage-policies`. Unset compression means never;
@@ -67,7 +71,7 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("admin_api_key", "grafana_db_password", mode="before")
+    @field_validator("admin_api_key", "grafana_db_password", "backend_db_password", mode="before")
     @classmethod
     def _blank_key_is_unset(cls, value: object) -> object:
         # Docker Compose passes an unset variable as an empty string. An empty

@@ -388,6 +388,7 @@ The backend exposes Prometheus metrics at `GET /metrics` (text exposition format
 | Providers | Requests by provider and outcome (`success`, `rate_limited`, `server_error`, `client_error`, `auth_error`, `timeout`, `connection_error`), request duration, retries, time spent waiting for the rate limiter, requests refused by the rate budget |
 | Collectors | Runs by job, kind, trigger and status; run duration; records written; runs in progress |
 | From the database, read at each scrape | Database availability; the health status and consecutive failures of each provider in use (enabled, with an enabled job); each enabled job's last outcome, last success and expected interval; age of the newest data per provider, asset type and observation type; open data-quality issues by kind, and stale series per provider |
+| Backups | When the last successful backup finished, its size, whether the newest run failed, the backup interval |
 | Process | CPU, memory, open files and garbage collection of the backend process |
 
 Counters and histograms cover the backend process, so runs started from the command line appear only in the database-derived metrics.
@@ -407,6 +408,9 @@ Prometheus scrapes the backend, itself and Alertmanager, and evaluates the alert
 | `ProviderRateLimited` | A provider answered HTTP 429 more than 3 times in an hour | warning |
 | `ProviderBudgetExhausted` | The rate limiter refused a request because the provider's budget was exhausted | warning |
 | `DataStale` | A provider has stale series (FR-012) for 30 minutes | warning |
+| `BackupFailed` | The newest backup run failed | warning |
+| `BackupMissing` | The last successful backup is older than the backup interval plus six hours | critical |
+| `BackupNeverRun` | The database is up but no backup has ever succeeded, for 2 hours | critical |
 
 ## 6. Non-Functional Requirements
 
@@ -447,6 +451,21 @@ Raw observations are kept indefinitely by default; nothing is deleted automatica
 - Secure secret management.
 - Input validation.
 - No unnecessary public service exposure.
+
+How the deployment meets these (Phase 11; operated as in docs/deployment.md):
+
+- **Secrets** are environment variables from a `.env` file that is never committed, readable by its owner only. The repository ships no passwords; `scripts/generate_env.py` creates random ones and `scripts/check_env.py` refuses a production `.env` with empty, short, reused or placeholder secrets.
+- **Database roles:** the running backend connects as its own role, which can read, insert and update but not delete, truncate or change the schema. Grafana's role can only read. Migrations, the seed file, backups and the command line use the owner. The restricted roles are recreated with exactly these privileges on every start.
+- **Network:** the database and Prometheus are on a network with no route outside. In production, the only published ports are the reverse proxy's 80 and 443, with HTTPS from Let's Encrypt and HSTS.
+- **Exposure:** in production Grafana is served behind its own login, with sign-up, anonymous access and public or external sharing disabled. The REST API is served behind HTTP basic authentication: the providers' licences do not allow redistributing their data, so the API is for the people given its credentials. `/metrics`, Prometheus and Alertmanager are not published. User accounts for the API remain Phase 12.
+- **Containers** have memory and CPU limits, rotated logs, `no-new-privileges`, and, where the image allows, no capabilities and a read-only root filesystem.
+
+### Backups
+
+- The database is backed up every `BACKUP_INTERVAL_HOURS` (24 by default) with `pg_dump`, and the newest `BACKUP_KEEP` (7) backups are kept. Each is verified and checksummed before it counts, and each run is recorded in the database (section 7, Database Backup).
+- A failed backup, a missed backup and a backup service that never ran raise alerts (FR-013).
+- Restoring follows TimescaleDB's procedure, and is tested by `scripts/test_backup_restore.sh`.
+- Backups must also be copied off the server; that copy is the operator's responsibility (docs/deployment.md).
 
 ### Maintainability
 
@@ -651,6 +670,19 @@ Fields:
 - `detected_at`, `last_seen_at`, `closed_at`
 
 A `stale` or `discrepancy` issue that closes and recurs is reopened. A closed gap is not reopened.
+
+#### Database Backup
+
+One run of the backup service.
+
+Fields:
+
+- `id`
+- `started_at`, `finished_at`
+- `status` (`success`, `failed`)
+- `file_name`, `size_bytes` (successful runs)
+- `interval_seconds` (how often the service runs)
+- `error` (failed runs)
 
 #### Provider Health
 
