@@ -1,0 +1,320 @@
+{
+  "uid": "market-overview",
+  "title": "Global Market Overview",
+  "description": "Latest values across every asset class, relative performance and data freshness.",
+  "tags": [
+    "market-data"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "market-data"
+      ],
+      "asDropdown": true,
+      "title": "Market Data dashboards",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "instrument",
+        "label": "Instruments",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT DISTINCT symbol FROM v_latest_observation\n WHERE observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level') ORDER BY 1\n",
+        "definition": "SELECT DISTINCT symbol FROM v_latest_observation\n WHERE observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level') ORDER BY 1\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Data sources",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Stock, ETF and intraday currency data: [Twelve Data](https://twelvedata.com).  \n**Powered by [CoinGecko](https://www.coingecko.com)**  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Key values",
+      "description": "Latest value of a few benchmarks, from each provider.",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT observed_at AS \"time\", symbol || ' · ' || provider AS metric, value\n  FROM v_latest_observation\n WHERE symbol IN ('BTC/USD', 'EUR/USD', 'ESTR', 'ECB-DFR', 'US10Y', 'SPY')\n   AND observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level')\n ORDER BY 1\n"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Relative performance",
+      "description": "Change since the first value in the selected time range.",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT observed_at AS \"time\",\n       symbol || ' · ' || provider AS metric,\n       (value / first_value(value) OVER (\n            PARTITION BY symbol, provider ORDER BY observed_at) - 1) * 100 AS value\n  FROM v_observation\n WHERE $__timeFilter(observed_at)\n   AND symbol IN (${instrument:sqlstring}) AND observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level')\n ORDER BY 1\n"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Latest values",
+      "description": "Values from different providers are listed separately.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       instrument_name AS \"Name\",\n       provider AS \"Provider\",\n       value AS \"Value\",\n       coalesce(currency, unit) AS \"Unit\",\n       quote_kind AS \"Kind\",\n       freshness AS \"Freshness\",\n       observed_at AS \"Observed\",\n       age_seconds AS \"Age\"\n  FROM v_latest_observation\n WHERE observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level')\n ORDER BY symbol, provider\n"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Data freshness",
+      "description": "Age of the newest value per provider and kind of data. Daily and weekend data is up to a few days old by design.",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 86400
+                    },
+                    {
+                      "color": "red",
+                      "value": 345600
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       series AS \"Series\",\n       last_observed_at AS \"Latest value at\",\n       last_ingested_at AS \"Collected at\",\n       age_seconds AS \"Age\"\n  FROM v_data_freshness\n WHERE true\n ORDER BY provider, asset_type, observation_type\n"
+        }
+      ],
+      "id": 5
+    }
+  ]
+}

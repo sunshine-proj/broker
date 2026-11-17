@@ -1,6 +1,6 @@
 # Backend Architecture
 
-This document describes the backend as it is built today (through Phase 6). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
+This document describes the backend as it is built today (through Phase 7). It grows with each phase; planned components are in [ROADMAP.md](../ROADMAP.md), and the rules each package follows are in [SKILLS.md](../SKILLS.md).
 
 ## Request Flow
 
@@ -44,11 +44,12 @@ uvicorn  ->  FastAPI app (app/main.py: create_app)
 | `app/collectors/` | Job runner and scheduler. |
 | `app/api/v1/market.py`, `collectors.py` | Read endpoints; providers, collector status and the manual job trigger. |
 | `app/api/v1/params.py` | Shared paging, time-range and dependency definitions. |
+| `app/services/reader_role.py` | Sets up Grafana's read-only database role. |
 | `app/services/read_api.py` | Defaults, validation and response shaping for the read endpoints. |
 | `app/repositories/read_queries.py` | The queries behind the read endpoints. |
 | `app/schemas/api.py` | Response models. |
 | `app/providers/twelve_data.py`, `coingecko.py`, `ecb.py`, `fred.py` | Provider adapters. |
-| `app/cli.py` | Administrative commands: `seed`, `search`, `collect`, `jobs`, `run`. |
+| `app/cli.py` | Administrative commands: `seed`, `search`, `collect`, `jobs`, `run`, `reader-role`. |
 | `migrations/` | Alembic environment and revisions. |
 
 ## Application Factory
@@ -71,7 +72,7 @@ Schema changes are made only through Alembic revisions in `backend/migrations/ve
 
 - `migrations/env.py` builds the database URL from `Settings`; no URL is stored in `alembic.ini`.
 - In Docker Compose, the one-shot `migrate` service runs `alembic upgrade head`, then applies the seed file, and the backend starts only after both succeed.
-- Revision `0001` enables the TimescaleDB extension; `0002` creates the data model; `0003` restricts candle intervals to the normalized set; `0004` adds collection jobs, execution triggers and exchange sessions.
+- Revision `0001` enables the TimescaleDB extension; `0002` creates the data model; `0003` restricts candle intervals to the normalized set; `0004` adds collection jobs, execution triggers and exchange sessions; `0005` adds the reporting views.
 - A migration spells out its own enumeration values instead of importing them, so it does not change when the application does.
 - An integration test compares the models with the migrated schema and fails on any difference, so a model change without a migration is caught. A second test compares check-constraint names exactly, which the first does not cover.
 
@@ -345,6 +346,59 @@ router (app/api/v1)          parses and validates query parameters
 - **Main value:** `/prices/history` defaults to each instrument's main observation type: `price` for stocks, ETFs, crypto and commodities, `rate` for forex and interest rates, `yield` for government bond yields, and `index_level` for indices.
 - **Unknown names:** a provider name in a filter that does not exist is an error (`unknown_provider`), not an empty result, so a typo is noticed.
 - **Providers:** `/providers` shows only the rate limits from a provider's configuration. Authentication settings, including the name of the key variable, are never returned.
+
+## Grafana
+
+Grafana reads the database directly, through reporting views, as a read-only role. It never writes and never calls the API.
+
+```text
+grafana/provisioning/datasources   -> datasource "Market Data" (uid marketdata), as GRAFANA_DB_USER
+grafana/provisioning/dashboards    -> loads grafana/dashboards/*.json into the "Market Data" folder
+scripts/build_dashboards.py        -> generates grafana/dashboards/*.json
+```
+
+### Reporting Views
+
+Migration `0005` defines the SQL the dashboards share:
+
+| View | Contents |
+| --- | --- |
+| `v_observation` | Every market observation with symbol, asset type and provider name |
+| `v_latest_observation` | The newest observation per instrument, provider and observation type, found per series through the index (as in the API), with its age |
+| `v_candle` | Candles with symbol and provider name |
+| `v_indicator_value` | Each indicator period's current value, with its number of stored revisions |
+| `v_data_freshness` | Newest value and collection time per provider, asset type and observation type |
+| `v_provider_status`, `v_job_status`, `v_execution` | Provider health, jobs and runs, with names joined in |
+
+`v_latest_observation` lists the observation types it covers; a new type must be added there by a migration.
+
+### Read-Only Role
+
+`python -m app.cli reader-role` runs in the `migrate` service after migrations and the seed. It:
+
+1. creates the role `GRAFANA_DB_USER` if needed and sets its password from `GRAFANA_DB_PASSWORD`;
+2. makes it a login role without any administrative right, with `default_transaction_read_only = on` and `statement_timeout = 30s`;
+3. replaces its table privileges with `SELECT` on every table and view in `public`, except `alembic_version`.
+
+Running after migrations means new tables and views are covered. Identifiers and the password are quoted by PostgreSQL's `format()`, not by Python.
+
+### Dashboards
+
+`scripts/build_dashboards.py` builds the nine dashboards from shared panel definitions:
+
+- a latest-values table;
+- series charts, with one line per instrument and provider;
+- relative performance since the start of the range;
+- a freshness table with thresholds suited to each dashboard;
+- the attribution text required by each provider whose data a dashboard shows.
+
+All dashboards use UTC, carry the `market-data` tag (which links them to each other), and are not editable in the interface.
+
+### Testing
+
+- `tests/test_dashboards.py` checks that the JSON matches the generator, and that each dashboard has its freshness table and its providers' attribution.
+- The same file runs every variable and panel query against the test database, as a read-only role set up the same way, with Grafana's macros and variables expanded. It also checks that the role cannot write.
+- `scripts/check_dashboards.py` runs every query through a running Grafana's query API, so Grafana's own macro handling is covered too.
 
 ## Error Handling
 

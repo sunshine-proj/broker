@@ -9,6 +9,7 @@ Usage:
     python -m app.cli collect indicators PROVIDER [--days 730]
     python -m app.cli jobs
     python -m app.cli run JOB
+    python -m app.cli reader-role
 """
 
 import argparse
@@ -47,6 +48,7 @@ from app.repositories.providers import SqlProviderRepository
 from app.services.collection import CollectionOutcome, CollectionService
 from app.services.ingestion import IngestionService
 from app.services.provider_health import ProviderHealthService
+from app.services.reader_role import ReaderRoleError, ensure_reader_role
 from app.services.seed import SeedError, apply_seed, load_seed_file
 
 logger = logging.getLogger(__name__)
@@ -205,6 +207,24 @@ async def run_job(settings: Settings, job_name: str) -> RunResult:
     return result
 
 
+async def reader_role(settings: Settings) -> None:
+    """Create or update Grafana's read-only role and grant it read access."""
+    if settings.grafana_db_password is None:
+        raise CommandError("GRAFANA_DB_PASSWORD is not set")
+    engine = create_engine(settings)
+    try:
+        async with engine.begin() as connection:
+            await ensure_reader_role(
+                connection,
+                settings.grafana_db_user,
+                settings.grafana_db_password.get_secret_value(),
+            )
+    except ReaderRoleError as exc:
+        raise CommandError(str(exc)) from exc
+    finally:
+        await engine.dispose()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -217,6 +237,7 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("query")
 
     commands.add_parser("jobs", help="list collection jobs and their status")
+    commands.add_parser("reader-role", help="set up the read-only database role for Grafana")
     run_parser = commands.add_parser("run", help="run a collection job now")
     run_parser.add_argument("job")
 
@@ -277,6 +298,8 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(search(settings, args.provider, args.query))
         elif args.command == "jobs":
             asyncio.run(list_jobs(settings))
+        elif args.command == "reader-role":
+            asyncio.run(reader_role(settings))
         elif args.command == "run":
             result = asyncio.run(run_job(settings, args.job))
             return 0 if result.status is CollectorStatus.SUCCESS else 2

@@ -1,0 +1,278 @@
+{
+  "uid": "interest-rates",
+  "title": "Interest Rates",
+  "description": "Money-market and central bank rates, in percent.",
+  "tags": [
+    "market-data"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-2y",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "market-data"
+      ],
+      "asDropdown": true,
+      "title": "Market Data dashboards",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "rate",
+        "label": "Rates",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT DISTINCT symbol FROM v_latest_observation WHERE asset_type = 'interest_rate' ORDER BY 1",
+        "definition": "SELECT DISTINCT symbol FROM v_latest_observation WHERE asset_type = 'interest_rate' ORDER BY 1",
+        "refresh": 1,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Data sources",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Source: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+      },
+      "id": 1
+    },
+    {
+      "type": "table",
+      "title": "Latest rates",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       instrument_name AS \"Name\",\n       provider AS \"Provider\",\n       value AS \"Rate\",\n       coalesce(currency, unit) AS \"Unit\",\n       quote_kind AS \"Kind\",\n       freshness AS \"Freshness\",\n       observed_at AS \"Observed\",\n       age_seconds AS \"Age\"\n  FROM v_latest_observation\n WHERE asset_type = 'interest_rate' AND observation_type = 'rate' AND symbol IN (${rate:sqlstring})\n ORDER BY symbol, provider\n"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Rates",
+      "description": "Central bank rates are recorded on the dates they change and drawn as steps; nothing is filled in between.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 3,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT observed_at AS \"time\",\n       symbol || ' · ' || provider AS metric,\n       value\n  FROM v_observation\n WHERE $__timeFilter(observed_at)\n   AND asset_type = 'interest_rate' AND observation_type = 'rate' AND symbol IN (${rate:sqlstring})\n ORDER BY 1\n"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Data freshness",
+      "description": "€STR is daily. Policy rates only change at central bank decisions, so their age is expected to be large.",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 345600
+                    },
+                    {
+                      "color": "red",
+                      "value": 604800
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT provider AS \"Provider\",\n       asset_type || ' ' || observation_type AS \"Data\",\n       series AS \"Series\",\n       last_observed_at AS \"Latest value at\",\n       last_ingested_at AS \"Collected at\",\n       age_seconds AS \"Age\"\n  FROM v_data_freshness\n WHERE asset_type = 'interest_rate'\n ORDER BY provider, asset_type, observation_type\n"
+        }
+      ],
+      "id": 4
+    }
+  ]
+}

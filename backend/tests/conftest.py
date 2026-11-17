@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.config.settings import Settings
 from app.database import create_engine, get_session
 from app.main import create_app
+from tests.sample_data import ids  # noqa: F401  (registers the fixture)
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 

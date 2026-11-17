@@ -1,0 +1,21 @@
+# Provisioned from version control; changes made in the Grafana interface are not kept.
+apiVersion: 1
+
+datasources:
+  - name: Market Data
+    uid: marketdata
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: db:5432
+    # A read-only role, set up by the migrate service (python -m app.cli reader-role).
+    user: ${GRAFANA_DB_USER}
+    secureJsonData:
+      password: ${GRAFANA_DB_PASSWORD}
+    jsonData:
+      database: ${POSTGRES_DB}
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: true
+      maxOpenConns: 10
+    isDefault: true
+    editable: false

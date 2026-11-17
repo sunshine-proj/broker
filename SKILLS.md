@@ -84,7 +84,11 @@ Alembic revisions live in `backend/migrations/versions/`. Tests live under `back
 ## 8. Grafana
 
 - Provision data sources and dashboards from files under `grafana/`; do not rely on changes made in the Grafana interface.
+- Change dashboards in `scripts/build_dashboards.py` and regenerate; never edit the JSON by hand.
+- Query the reporting views (`v_observation`, `v_latest_observation`, `v_candle`, `v_indicator_value`, `v_data_freshness`, ...) rather than joining tables in each panel. Put a new reusable query in a view, through a migration.
+- Use `${variable:sqlstring}` for variables in SQL, so values are quoted.
 - Grafana connects with a read-only database role.
+- Every dashboard showing provider data carries that provider's attribution.
 - Every panel sets a unit, and every dashboard shows when its data was last updated.
 - Label delayed, end-of-day, and reference data as such.
 

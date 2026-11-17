@@ -318,6 +318,49 @@ Euro-area inflation stops at December 2025, as found in Phase 4C.
 
 
 
+Phase 7 (Grafana) is done. That completes the MVP milestone, phases 0 to 7. Grafana at http://localhost:3000 now shows nine dashboards in a Market Data folder. All 17 roadmap tasks are ticked, 440 tests pass and Ruff is clean.
+
+Verified on the live stack
+Datasource: Grafana connects as the new read-only database role, and its health check reports "Database Connection OK".
+Queries: all nine dashboards loaded, and every one of their 47 queries ran through Grafana itself without an error.
+Data: the crypto, forex, interest-rate, indicator and collector dashboards show real collected data. Bond yields are empty because FRED is still disabled.
+Not checked visually: I haven't looked at the dashboards in a browser. I checked that Grafana loads them and runs every query, but not the layout, colours or readability. Worth a quick look.
+What was built
+Read-only access: Grafana connects as grafana_reader, which can only read: read-only transactions, a 30-second limit per query, and no access to the migration table. The migrate service creates and updates it on every start. Tests confirm it can't write.
+Shared queries: migration 0005 adds database views, so the dashboards don't each repeat the same joins. Examples are latest value per series, current value per indicator period, and data freshness per provider.
+Generated dashboards: scripts/build_dashboards.py builds all nine from shared panel definitions, and both the script and its JSON output are under version control. Change the script and rerun it, not the JSON; a test fails if the two disagree.
+On every dashboard:
+variables to choose instruments, and a time range;
+a data freshness table, coloured by what's normal for that data;
+the attribution its providers require (for example "Powered by CoinGecko", the ECB as source, and FRED's notice);
+every value labelled by provider, by kind (traded, indicative or reference), and by how current it is (real-time, delayed or end-of-day).
+Two kinds of query test: one runs every query against the test database as a read-only role. scripts/check_dashboards.py runs them through a live Grafana.
+Problems found and fixed along the way
+A real dashboard bug: the query test found that the bond-yields country selector used a column name that doesn't exist on that table.
+Two fixes in the role setup: query parameters needed explicit types, and the role statements now run as raw SQL so a password containing a colon can't break them.
+Changes to your setup
+.env additions: I added GRAFANA_DB_USER=grafana_reader and GRAFANA_DB_PASSWORD=change_me_reader to .env, as development defaults like your other passwords. Change the password before any real deployment; the role updates itself on the next start.
+Compose: the stack now refuses to start without GRAFANA_DB_PASSWORD.
+Open licensing questions, now that data is displayed
+Twelve Data: its free plan says "internal non-display usage only". The stock, ETF and forex dashboards display its data. Whether a personal dashboard counts as display is still unresolved; check their terms, or disable those dashboards.
+FRED: its terms prohibit archiving its data. Its jobs remain disabled.
+Phase 8 (Binance, the New York Fed, commodities, more instruments) is next. It's the first Version 1.0 phase, and the FRED decision affects how the Treasury yield curve task is done.
+
+
+
+
+===========================================
+
+
+
+
+
+
+
+
+
+
+
 
 
 

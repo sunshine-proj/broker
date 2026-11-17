@@ -264,23 +264,23 @@ Verified with tests against FRED's documented response format. Not yet run again
 
 ### Tasks
 
-- [ ] Configure PostgreSQL data source with a read-only database role.
-- [ ] Configure Grafana provisioning.
-- [ ] Create Global Market Overview dashboard.
-- [ ] Create Stock Market dashboard.
-- [ ] Create ETF Monitor dashboard.
-- [ ] Create Cryptocurrency Market dashboard.
-- [ ] Create Forex Monitor dashboard.
-- [ ] Create Government Bond Yields dashboard.
-- [ ] Create Interest Rates dashboard.
-- [ ] Create Economic Indicators dashboard.
-- [ ] Create Collector Monitoring dashboard.
-- [ ] Add dashboard variables.
-- [ ] Add time-range controls.
-- [ ] Add data freshness indicators.
-- [ ] Show the attribution each provider's licence requires (CoinGecko: "Powered by CoinGecko"; ECB: cite the ECB as the source; FRED: the API notice).
-- [ ] Version-control dashboard definitions.
-- [ ] Test dashboard queries.
+- [x] Configure PostgreSQL data source with a read-only database role.
+- [x] Configure Grafana provisioning.
+- [x] Create Global Market Overview dashboard.
+- [x] Create Stock Market dashboard.
+- [x] Create ETF Monitor dashboard.
+- [x] Create Cryptocurrency Market dashboard.
+- [x] Create Forex Monitor dashboard.
+- [x] Create Government Bond Yields dashboard.
+- [x] Create Interest Rates dashboard.
+- [x] Create Economic Indicators dashboard.
+- [x] Create Collector Monitoring dashboard.
+- [x] Add dashboard variables.
+- [x] Add time-range controls.
+- [x] Add data freshness indicators.
+- [x] Show the attribution each provider's licence requires (CoinGecko: "Powered by CoinGecko"; ECB: cite the ECB as the source; FRED: the API notice).
+- [x] Version-control dashboard definitions.
+- [x] Test dashboard queries.
 
 ### Acceptance Criteria
 

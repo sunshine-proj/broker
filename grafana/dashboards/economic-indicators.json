@@ -1,0 +1,293 @@
+{
+  "uid": "economic-indicators",
+  "title": "Economic Indicators",
+  "description": "Macroeconomic indicators. Each period shows its current value; revisions are kept.",
+  "tags": [
+    "market-data"
+  ],
+  "timezone": "utc",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-10y",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "market-data"
+      ],
+      "asDropdown": true,
+      "title": "Market Data dashboards",
+      "keepTime": true,
+      "includeVars": false
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "indicator",
+        "label": "Indicator",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT name AS __text, code AS __value FROM economic_indicator ORDER BY name",
+        "definition": "SELECT name AS __text, code AS __value FROM economic_indicator ORDER BY name",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "Data sources",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Source: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+      },
+      "id": 1
+    },
+    {
+      "type": "table",
+      "title": "Latest values",
+      "description": "Periods are dated by their first day: September 2026 is 2026-09-01.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT DISTINCT ON (code)\n       code AS \"Code\",\n       name AS \"Indicator\",\n       coalesce(country, 'EA') AS \"Area\",\n       observed_at AS \"Period\",\n       value AS \"Value\",\n       unit AS \"Unit\",\n       revisions AS \"Revisions\",\n       provider AS \"Provider\",\n       ingested_at AS \"Stored\"\n  FROM v_indicator_value\n ORDER BY code, observed_at DESC\n"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "$indicator",
+      "description": "",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 16,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT observed_at AS \"time\", name AS metric, value\n  FROM v_indicator_value\n WHERE code = ${indicator:sqlstring}\n   AND $__timeFilter(observed_at)\n ORDER BY 1\n"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Revisions of $indicator",
+      "description": "Periods whose published value changed, with every stored value.",
+      "gridPos": {
+        "x": 16,
+        "y": 13,
+        "w": 8,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT e.observed_at AS \"Period\", e.ingested_at AS \"Stored\", e.value AS \"Value\"\n  FROM economic_observation e\n  JOIN economic_indicator i ON i.id = e.indicator_id\n WHERE i.code = ${indicator:sqlstring}\n   AND (e.indicator_id, e.observed_at) IN (\n        SELECT indicator_id, observed_at FROM economic_observation\n         GROUP BY 1, 2 HAVING count(*) > 1)\n ORDER BY 1 DESC, 2\n"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Data freshness",
+      "description": "Collection runs daily; new periods appear weeks after their end.",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Since stored"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 172800
+                    },
+                    {
+                      "color": "red",
+                      "value": 345600
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "marketdata"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "marketdata"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT code AS \"Indicator\",\n       provider AS \"Provider\",\n       max(observed_at) AS \"Latest period\",\n       max(ingested_at) AS \"Last stored\",\n       EXTRACT(EPOCH FROM now() - max(ingested_at)) AS \"Since stored\"\n  FROM v_indicator_value\n GROUP BY code, provider\n ORDER BY code\n"
+        }
+      ],
+      "id": 5
+    }
+  ]
+}

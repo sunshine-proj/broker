@@ -44,7 +44,11 @@ class Settings(BaseSettings):
     # API. Manual triggers through the API are disabled while it is unset.
     admin_api_key: SecretStr | None = None
 
-    @field_validator("admin_api_key", mode="before")
+    # Read-only database role for Grafana, set up by `python -m app.cli reader-role`.
+    grafana_db_user: str = "grafana_reader"
+    grafana_db_password: SecretStr | None = None
+
+    @field_validator("admin_api_key", "grafana_db_password", mode="before")
     @classmethod
     def _blank_key_is_unset(cls, value: object) -> object:
         # Docker Compose passes an unset variable as an empty string. An empty
