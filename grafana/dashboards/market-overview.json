@@ -70,7 +70,7 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 6
+        "h": 9
       },
       "fieldConfig": {
         "defaults": {},
@@ -78,7 +78,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Stock, ETF and intraday currency data: [Twelve Data](https://twelvedata.com).  \n**Powered by [CoinGecko](https://www.coingecko.com)**  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+        "content": "Stock, ETF, intraday currency and gold data: [Twelve Data](https://twelvedata.com).  \n**Powered by [CoinGecko](https://www.coingecko.com)**  \nExchange prices: [Binance](https://www.binance.com) spot market.  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \nSOFR, EFFR and OBFR are subject to the [Terms of Use](https://www.newyorkfed.org/privacy/termsofuse.html) posted at newyorkfed.org. The New York Fed is not responsible for publication of these rates by this platform, does not sanction or endorse any particular republication, and has no liability for your use. SOFR is calculated using data provided under a license granted to the New York Fed by DTCC Solutions LLC.  \nSource: [U.S. Department of the Treasury](https://home.treasury.gov), Daily Treasury Par Yield Curve Rates.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
       },
       "id": 1
     },
@@ -88,7 +88,7 @@
       "description": "Latest value of a few benchmarks, from each provider.",
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 9,
         "w": 24,
         "h": 4
       },
@@ -122,7 +122,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT observed_at AS \"time\", symbol || ' · ' || provider AS metric, value\n  FROM v_latest_observation\n WHERE symbol IN ('BTC/USD', 'EUR/USD', 'ESTR', 'ECB-DFR', 'US10Y', 'SPY')\n   AND observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level')\n ORDER BY 1\n"
+          "rawSql": "SELECT observed_at AS \"time\", symbol || ' · ' || provider AS metric, value\n  FROM v_latest_observation\n WHERE symbol IN ('BTC/USD', 'EUR/USD', 'XAU/USD', 'ESTR', 'SOFR', 'US10Y', 'SPY')\n   AND observation_type IN ('price', 'nav', 'rate', 'yield', 'index_level')\n ORDER BY 1\n"
         }
       ],
       "id": 2
@@ -133,7 +133,7 @@
       "description": "Change since the first value in the selected time range.",
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 13,
         "w": 24,
         "h": 10
       },
@@ -187,7 +187,7 @@
       "description": "Values from different providers are listed separately.",
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 23,
         "w": 24,
         "h": 12
       },
@@ -241,7 +241,7 @@
       "description": "Age of the newest value per provider and kind of data. Daily and weekend data is up to a few days old by design.",
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 35,
         "w": 24,
         "h": 6
       },

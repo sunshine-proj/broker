@@ -262,7 +262,7 @@ def test_shipped_seed_fits_every_budget(settings: Settings) -> None:
     usages = check_budget(load_seed_file(settings.seed_file))
 
     providers = {usage.provider for usage in usages}
-    assert providers == {"twelve_data", "coingecko", "ecb"}
+    assert providers == {"twelve_data", "coingecko", "ecb", "binance", "nyfed", "us_treasury"}
     assert all(not usage.exceeded for usage in usages)
 
 

@@ -73,6 +73,7 @@ def test_every_dashboard_in_the_prd_exists() -> None:
         "Interest Rates",
         "Economic Indicators",
         "Collector Monitoring",
+        "Commodities",
     }
 
 
@@ -99,17 +100,34 @@ def test_dashboard_structure(board: dict[str, Any]) -> None:
     [
         (
             "market-overview",
-            ["Powered by", "CoinGecko", "Source: [European Central Bank", "FRED® API"],
+            [
+                "Powered by",
+                "CoinGecko",
+                "Binance",
+                "Source: [European Central Bank",
+                "subject to the [Terms of Use]",
+                "The New York Fed is not responsible for publication of these rates",
+                "U.S. Department of the Treasury",
+                "FRED® API",
+            ],
         ),
         ("stock-market", ["Twelve Data"]),
         ("etf-monitor", ["Twelve Data"]),
-        ("crypto-market", ["**Powered by [CoinGecko]"]),
+        ("crypto-market", ["**Powered by [CoinGecko]", "Binance"]),
         ("forex-monitor", ["Twelve Data", "European Central Bank"]),
         (
             "government-bond-yields",
-            ["not endorsed or certified by the Federal Reserve Bank of St. Louis"],
+            [
+                "U.S. Department of the Treasury",
+                "European Central Bank",
+                "not endorsed or certified by the Federal Reserve Bank of St. Louis",
+            ],
         ),
-        ("interest-rates", ["European Central Bank", "FRED® API"]),
+        (
+            "interest-rates",
+            ["European Central Bank", "DTCC Solutions LLC", "FRED® API"],
+        ),
+        ("commodities", ["Twelve Data"]),
         ("economic-indicators", ["European Central Bank", "FRED® API"]),
     ],
 )

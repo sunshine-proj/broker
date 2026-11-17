@@ -1,7 +1,7 @@
 {
   "uid": "government-bond-yields",
   "title": "Government Bond Yields",
-  "description": "Government benchmark yields, in percent. US Treasury yields come from FRED, which is disabled until its key and terms are settled.",
+  "description": "Government benchmark yields, in percent: the US Treasury par yield curve and the ECB's euro area yield curves. Choose a curve and the provider to read it from.",
   "tags": [
     "market-data"
   ],
@@ -43,15 +43,32 @@
   "templating": {
     "list": [
       {
-        "name": "country",
-        "label": "Country",
+        "name": "curve",
+        "label": "Curve",
         "type": "query",
         "datasource": {
           "type": "grafana-postgresql-datasource",
           "uid": "marketdata"
         },
-        "query": "SELECT DISTINCT metadata->>'country' FROM instrument\n WHERE asset_type = 'government_bond_yield' ORDER BY 1\n",
-        "definition": "SELECT DISTINCT metadata->>'country' FROM instrument\n WHERE asset_type = 'government_bond_yield' ORDER BY 1\n",
+        "query": "SELECT DISTINCT metadata->>'curve' FROM instrument\n WHERE asset_type = 'government_bond_yield' ORDER BY 1\n",
+        "definition": "SELECT DISTINCT metadata->>'curve' FROM instrument\n WHERE asset_type = 'government_bond_yield' ORDER BY 1\n",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "source",
+        "label": "Provider",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "marketdata"
+        },
+        "query": "SELECT DISTINCT provider FROM v_latest_observation\n WHERE asset_type = 'government_bond_yield'\n   AND instrument_metadata->>'curve' = ${curve:sqlstring}\n ORDER BY 1 DESC\n",
+        "definition": "SELECT DISTINCT provider FROM v_latest_observation\n WHERE asset_type = 'government_bond_yield'\n   AND instrument_metadata->>'curve' = ${curve:sqlstring}\n ORDER BY 1 DESC\n",
         "refresh": 1,
         "sort": 0,
         "multi": false,
@@ -70,7 +87,7 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 3
+        "h": 5
       },
       "fieldConfig": {
         "defaults": {},
@@ -78,17 +95,17 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+        "content": "Source: [U.S. Department of the Treasury](https://home.treasury.gov), Daily Treasury Par Yield Curve Rates.  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
       },
       "id": 1
     },
     {
       "type": "barchart",
       "title": "Yield curve",
-      "description": "Latest yield by maturity.",
+      "description": "Latest yield by maturity, from the chosen provider.",
       "gridPos": {
         "x": 0,
-        "y": 3,
+        "y": 5,
         "w": 10,
         "h": 9
       },
@@ -118,7 +135,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT instrument_metadata->>'maturity' AS \"Maturity\",\n       value AS \"Yield\"\n  FROM v_latest_observation\n WHERE asset_type = 'government_bond_yield' AND observation_type = 'yield'\n   AND instrument_metadata->>'country' = ${country:sqlstring}\n ORDER BY CASE right(instrument_metadata->>'maturity', 1) WHEN 'M' THEN left(instrument_metadata->>'maturity', -1)::int ELSE left(instrument_metadata->>'maturity', -1)::int * 12 END\n"
+          "rawSql": "SELECT instrument_metadata->>'maturity' AS \"Maturity\",\n       value AS \"Yield\"\n  FROM v_latest_observation\n WHERE asset_type = 'government_bond_yield' AND observation_type = 'yield' AND instrument_metadata->>'curve' = ${curve:sqlstring} AND provider = ${source:sqlstring}\n ORDER BY CASE right(instrument_metadata->>'maturity', 1) WHEN 'M' THEN left(instrument_metadata->>'maturity', -1)::int ELSE left(instrument_metadata->>'maturity', -1)::int * 12 END\n"
         }
       ],
       "id": 2
@@ -129,7 +146,7 @@
       "description": "",
       "gridPos": {
         "x": 10,
-        "y": 3,
+        "y": 5,
         "w": 14,
         "h": 9
       },
@@ -172,7 +189,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT symbol AS \"Symbol\",\n       instrument_name AS \"Name\",\n       provider AS \"Provider\",\n       value AS \"Yield\",\n       coalesce(currency, unit) AS \"Unit\",\n       quote_kind AS \"Kind\",\n       freshness AS \"Freshness\",\n       observed_at AS \"Observed\",\n       age_seconds AS \"Age\"\n  FROM v_latest_observation\n WHERE asset_type = 'government_bond_yield' AND observation_type = 'yield' AND instrument_metadata->>'country' = ${country:sqlstring}\n ORDER BY symbol, provider\n"
+          "rawSql": "SELECT symbol AS \"Symbol\",\n       instrument_name AS \"Name\",\n       provider AS \"Provider\",\n       value AS \"Yield\",\n       coalesce(currency, unit) AS \"Unit\",\n       quote_kind AS \"Kind\",\n       freshness AS \"Freshness\",\n       observed_at AS \"Observed\",\n       age_seconds AS \"Age\"\n  FROM v_latest_observation\n WHERE asset_type = 'government_bond_yield' AND observation_type = 'yield' AND instrument_metadata->>'curve' = ${curve:sqlstring}\n ORDER BY symbol, provider\n"
         }
       ],
       "id": 3
@@ -183,7 +200,7 @@
       "description": "",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 14,
         "w": 24,
         "h": 10
       },
@@ -226,7 +243,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT observed_at AS \"time\",\n       symbol || ' · ' || provider AS metric,\n       value\n  FROM v_observation\n WHERE $__timeFilter(observed_at)\n   AND asset_type = 'government_bond_yield' AND observation_type = 'yield' AND instrument_metadata->>'country' = ${country:sqlstring}\n ORDER BY 1\n"
+          "rawSql": "SELECT observed_at AS \"time\",\n       symbol || ' · ' || provider AS metric,\n       value\n  FROM v_observation\n WHERE $__timeFilter(observed_at)\n   AND asset_type = 'government_bond_yield' AND observation_type = 'yield' AND instrument_metadata->>'curve' = ${curve:sqlstring} AND provider = ${source:sqlstring}\n ORDER BY 1\n"
         }
       ],
       "id": 4
@@ -234,10 +251,10 @@
     {
       "type": "table",
       "title": "Data freshness",
-      "description": "Yields are published daily with a lag of one business day.",
+      "description": "Yields are published each business day, after the close.",
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 24,
         "w": 24,
         "h": 6
       },

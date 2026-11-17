@@ -97,6 +97,20 @@ class ProviderHttpClient:
         `allow_empty`, a successful response with an empty body returns None,
         for providers that answer "no data" that way.
         """
+        response = await self._get(path, params, cost)
+        if allow_empty and not response.text.strip():
+            return None
+        return self._decode(response)
+
+    async def get_text(
+        self, path: str, params: Mapping[str, Any] | None = None, *, cost: int = 1
+    ) -> str:
+        """GET `path` and return the body as text, for providers that do not answer in JSON."""
+        response = await self._get(path, params, cost)
+        return response.text
+
+    async def _get(self, path: str, params: Mapping[str, Any] | None, cost: int) -> httpx.Response:
+        """A successful response to GET `path`, after any retries."""
         url = f"{self._base_url}/{path.lstrip('/')}"
         query, headers = self._authenticate(dict(params or {}))
         attempts = self._settings.max_retries + 1
@@ -118,9 +132,7 @@ class ProviderHttpClient:
             else:
                 failure = self._classify(response)
                 if failure is None:
-                    if allow_empty and not response.text.strip():
-                        return None
-                    return self._decode(response)
+                    return response
                 error = failure
 
             if isinstance(error, ProviderRateLimitedError):

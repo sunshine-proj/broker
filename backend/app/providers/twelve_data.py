@@ -115,6 +115,14 @@ def _quote_currency(symbol: str) -> str | None:
     return quote if separator and base and quote else None
 
 
+# ISO 4217 codes of the precious metals: gold, silver, platinum, palladium.
+_METALS = frozenset({"XAU", "XAG", "XPT", "XPD"})
+
+
+def _is_metal(symbol: str) -> bool:
+    return symbol.partition("/")[0] in _METALS
+
+
 def _is_error(item: object) -> bool:
     return isinstance(item, dict) and item.get("status") == "error"
 
@@ -178,7 +186,15 @@ class TwelveDataProvider(Provider):
                 parsed.currency,
                 QuoteKind.TRADED,
             )
-        elif (pair_currency := _quote_currency(symbol)) is not None:
+        elif (pair_currency := _quote_currency(symbol)) is not None and _is_metal(symbol):
+            # Spot precious metals are priced like currency pairs (XAU/USD), but
+            # the value is the price of the metal: indicative, not executable.
+            observation_type, currency, kind = (
+                ObservationType.PRICE,
+                pair_currency,
+                QuoteKind.INDICATIVE,
+            )
+        elif pair_currency is not None:
             # A forex rate is an aggregated quote, not an executable price.
             observation_type, currency, kind = (
                 ObservationType.RATE,

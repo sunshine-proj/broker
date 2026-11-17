@@ -2,12 +2,15 @@
 
 A self-hosted financial market data aggregation platform supporting stocks, ETFs, cryptocurrencies, forex, government bond yields, interest rates, commodities, market indices, and economic indicators.
 
-**Status:** Phases 0 to 7 are complete (the MVP). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. The Docker Compose stack starts, migrations create the full data model, the seed file is applied, and `/api/v1/health` works. Four providers are integrated, and data can be collected from the command line:
+**Status:** Phases 0 to 7 are complete (the MVP), and Phase 8 (additional market coverage) is complete except for the items its providers' free plans do not cover; see [ROADMAP.md](ROADMAP.md). Collection runs automatically on schedules defined in the seed file, and the collected data is served by the REST API and shown in Grafana dashboards. Seven providers are integrated:
 
-- **Twelve Data:** stocks, ETFs, forex.
-- **CoinGecko:** crypto.
-- **ECB:** reference exchange rates, €STR, key rates, euro-area statistics.
-- **FRED:** US Treasury yields, federal funds rate, US statistics. Needs a key; see the licensing note in [docs/providers/fred.md](docs/providers/fred.md). Scheduled collection, the data endpoints and dashboards are not implemented yet. See [ROADMAP.md](ROADMAP.md) for progress; the sections below marked *planned* describe the target.
+- **Twelve Data:** US stocks, ETFs, forex, spot gold.
+- **CoinGecko:** crypto prices and market data, averaged across exchanges.
+- **Binance:** exchange prices of crypto pairs, every minute.
+- **ECB:** reference exchange rates, €STR, key rates, euro-area yield curves, euro-area statistics.
+- **New York Fed:** SOFR, EFFR and OBFR.
+- **US Treasury:** the daily Treasury par yield curve.
+- **FRED:** US Treasury yields, federal funds rate, US statistics. Needs a key, and its jobs are disabled; see the licensing note in [docs/providers/fred.md](docs/providers/fred.md).
 
 Collect financial data from multiple providers, normalize it, store historical observations, and visualize everything through Grafana.
 
@@ -54,16 +57,19 @@ PostgreSQL + TimescaleDB
 - Grafana
 - Docker Compose
 
-## Data Providers (planned)
+## Data Providers
 
-| Provider | Data | Roadmap phase |
-| --- | --- | --- |
-| Twelve Data | Stocks, ETFs, intraday forex, selected commodities | 4 |
-| CoinGecko | Cryptocurrency prices and market data | 4 |
-| ECB | Daily reference exchange rates, €STR, euro-area economic data | 4 |
-| FRED | US Treasury yields, federal funds rate, economic indicators | 4 |
-| Binance | Exchange-specific cryptocurrency prices | 8 |
-| New York Fed | Money market rates (SOFR, EFFR) | 8 |
+| Provider | Data | Key | Document |
+| --- | --- | --- | --- |
+| Twelve Data | US stocks, ETFs, intraday forex, spot gold | Required | [twelve_data.md](docs/providers/twelve_data.md) |
+| CoinGecko | Cryptocurrency prices and market data | Optional | [coingecko.md](docs/providers/coingecko.md) |
+| Binance | Exchange-specific cryptocurrency prices and candles | None | [binance.md](docs/providers/binance.md) |
+| ECB | Reference exchange rates, €STR, key rates, euro-area yield curves and economic data | None | [ecb.md](docs/providers/ecb.md) |
+| New York Fed | SOFR, EFFR, OBFR | None | [nyfed.md](docs/providers/nyfed.md) |
+| US Treasury | Daily Treasury par yield curve | None | [us_treasury.md](docs/providers/us_treasury.md) |
+| FRED | US Treasury yields, federal funds rate, US economic indicators | Required | [fred.md](docs/providers/fred.md) |
+
+Not covered by the free plans in use: stocks outside the US, market indices, silver, crude oil and natural gas. Twelve Data offers them from its paid Grow plan.
 
 API access and coverage depend on provider subscriptions and licensing. Default collection intervals are sized to fit the providers' free plans; see the data refresh strategy in [PRD.md](PRD.md).
 
@@ -244,10 +250,11 @@ Open <http://localhost:3000> and sign in with `GRAFANA_ADMIN_USER` and `GRAFANA_
 | --- | --- |
 | Global Market Overview | Key values, relative performance and the latest value of everything tracked |
 | Stock Market, ETF Monitor | Latest prices, daily change, price and performance charts, daily candles |
-| Cryptocurrency Market | Prices, market capitalization, volume, supply and dominance |
+| Cryptocurrency Market | Prices, market capitalization, volume, supply and dominance; Binance exchange prices beside CoinGecko's averages |
 | Forex Monitor | Market and ECB reference rates, side by side |
-| Government Bond Yields | Yield curve and yield history (empty until FRED is enabled) |
-| Interest Rates | €STR, ECB key rates and the federal funds rate |
+| Government Bond Yields | Yield curve and yield history of the US Treasury curve and the euro area curves; choose a curve and a provider |
+| Interest Rates | €STR, ECB key rates, SOFR, EFFR, OBFR and the federal funds rate |
+| Commodities | Spot gold price and daily candles |
 | Economic Indicators | Latest values, history and revisions of each indicator |
 | Collector Monitoring | Provider health, jobs, runs per hour, failures |
 
@@ -324,12 +331,15 @@ After editing the file, rebuild and restart: `docker compose up -d --build`.
 
 The file currently tracks:
 
-- 7 US stocks, 3 ETFs and 5 forex pairs through Twelve Data;
+- 7 US stocks, 7 ETFs, 5 forex pairs and spot gold through Twelve Data;
 - 10 cryptocurrencies through CoinGecko;
-- 4 euro reference exchange rates, €STR, two ECB key rates and 4 euro-area economic indicators through the ECB;
-- 6 US Treasury yields, the effective federal funds rate and 6 US economic indicators through FRED.
+- 5 Tether-quoted crypto pairs through Binance;
+- 14 euro reference exchange rates, €STR, two ECB key rates, 8 euro-area government yields and 7 euro-area economic indicators through the ECB;
+- SOFR, EFFR and OBFR through the New York Fed;
+- 11 US Treasury par yields through the US Treasury;
+- 6 US Treasury yields, the effective federal funds rate and 6 US economic indicators through FRED (disabled).
 
-Each is sized to the provider's free plan. Other providers are added in later sub-phases of Phase 4. To find the symbol a provider uses:
+Instruments carry metadata such as country, FIGI, ETF issuer and focus, pair base and quote, and yield-curve maturity. Each provider's share is sized to its free plan. To find the symbol a provider uses:
 
 ```bash
 docker compose run --rm migrate python -m app.cli search twelve_data "apple"
@@ -342,12 +352,17 @@ Collection runs automatically. The backend container runs a scheduler that start
 | Job | Schedule (UTC) |
 | --- | --- |
 | `twelve_data_listed_quotes` | Every 15 minutes, during New York trading hours |
-| `twelve_data_forex_quotes` | Every 15 minutes |
-| `twelve_data_daily_candles` | Daily at 00:30, retried once after an hour if it fails |
+| `twelve_data_forex_quotes` | Every 30 minutes |
+| `twelve_data_commodity_quotes` | Every 30 minutes |
+| `twelve_data_daily_candles` | Daily at 00:40, retried once after an hour if it fails |
 | `coingecko_quotes` | Every 5 minutes |
 | `coingecko_dominance` | Every 2 hours |
 | `ecb_daily_quotes` | Daily at 16:00, with retry |
 | `ecb_indicators` | Daily at 10:00, with retry |
+| `binance_quotes` | Every minute |
+| `binance_daily_candles` | Daily at 00:10, with retry |
+| `nyfed_quotes` | Daily at 20:30, after the New York Fed's same-day revision window, with retry |
+| `us_treasury_quotes` | Daily at 23:30, with retry |
 | `fred_daily_quotes`, `fred_indicators` | Disabled until `FRED_API_KEY` is set and FRED's terms are settled |
 
 When the seed file is applied, the jobs are checked against every provider's rate limits. A configuration that would exceed one stops the startup, and the `migrate` log names the provider and the jobs.

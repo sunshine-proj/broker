@@ -80,7 +80,7 @@ async def test_instrument_details(client: TestClient, ids: Ids) -> None:
     instrument = get(client, f"/instruments/{ids.us10y}")
 
     assert instrument["symbol"] == "US10Y"
-    assert instrument["metadata"] == {"country": "US", "maturity": "10Y"}
+    assert instrument["metadata"] == {"country": "US", "maturity": "10Y", "curve": "US Treasury"}
 
 
 async def test_unknown_instrument_is_404(client: TestClient, ids: Ids) -> None:

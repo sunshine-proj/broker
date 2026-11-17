@@ -36,7 +36,7 @@ class ExampleProvider(Provider):
         return [Quote(...) for item in parsed.data]
 ```
 
-A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`. The real adapters, [Twelve Data](twelve_data.md), [CoinGecko](coingecko.md), the [ECB](ecb.md) and [FRED](fred.md), are fuller examples.
+A complete small adapter, used by the framework's own tests, is in `backend/tests/providers_support.py`. The real adapters, [Twelve Data](twelve_data.md), [CoinGecko](coingecko.md), [Binance](binance.md), the [ECB](ecb.md), the [New York Fed](nyfed.md), the [US Treasury](us_treasury.md) and [FRED](fred.md), are fuller examples. The US Treasury adapter reads XML with `get_text` instead of `get_json`.
 
 Add the module to the imports in `backend/app/providers/__init__.py`, which is what registers it.
 

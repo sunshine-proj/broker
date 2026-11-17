@@ -78,7 +78,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Stock, ETF and intraday currency data: [Twelve Data](https://twelvedata.com).  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only."
+        "content": "Stock, ETF, intraday currency and gold data: [Twelve Data](https://twelvedata.com).  \nSource: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only."
       },
       "id": 1
     },
@@ -194,7 +194,7 @@
     {
       "type": "table",
       "title": "Data freshness",
-      "description": "Market rates are collected every 15 minutes; ECB rates once a day.",
+      "description": "Market rates are collected every 30 minutes; ECB rates once a day.",
       "gridPos": {
         "x": 0,
         "y": 24,

@@ -70,7 +70,7 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 3
+        "h": 4
       },
       "fieldConfig": {
         "defaults": {},
@@ -78,17 +78,17 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**Powered by [CoinGecko](https://www.coingecko.com)**"
+        "content": "**Powered by [CoinGecko](https://www.coingecko.com)**  \nExchange prices: [Binance](https://www.binance.com) spot market."
       },
       "id": 1
     },
     {
       "type": "table",
       "title": "Market overview",
-      "description": "Prices are averages across exchanges, served with a delay of 1 to 5 minutes.",
+      "description": "CoinGecko prices are averages across exchanges, served with a delay of 1 to 5 minutes, in US dollars. Binance prices are the last trade on Binance, in Tether (USDT), and are separate instruments.",
       "gridPos": {
         "x": 0,
-        "y": 3,
+        "y": 4,
         "w": 24,
         "h": 10
       },
@@ -190,7 +190,7 @@
       "description": "Logarithmic scale, so coins of very different prices fit one chart.",
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 14,
         "w": 12,
         "h": 9
       },
@@ -245,7 +245,7 @@
       "description": "Change since the first value in the selected time range.",
       "gridPos": {
         "x": 12,
-        "y": 13,
+        "y": 14,
         "w": 12,
         "h": 9
       },
@@ -299,7 +299,7 @@
       "description": "Share of total crypto market capitalization. Only the largest coins have a figure.",
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 23,
         "w": 8,
         "h": 9
       },
@@ -351,7 +351,7 @@
       "description": "",
       "gridPos": {
         "x": 8,
-        "y": 22,
+        "y": 23,
         "w": 16,
         "h": 9
       },
@@ -397,7 +397,7 @@
       "description": "",
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 32,
         "w": 24,
         "h": 8
       },
@@ -447,10 +447,10 @@
     {
       "type": "table",
       "title": "Data freshness",
-      "description": "Prices are collected every 5 minutes, dominance every 2 hours.",
+      "description": "CoinGecko prices are collected every 5 minutes, dominance every 2 hours; Binance prices every minute.",
       "gridPos": {
         "x": 0,
-        "y": 39,
+        "y": 40,
         "w": 24,
         "h": 6
       },

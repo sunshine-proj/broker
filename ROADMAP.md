@@ -296,23 +296,25 @@ Verified with tests against FRED's documented response format. Not yet run again
 
 ### Tasks
 
-- [ ] Implement Binance market data adapter.
-- [ ] Add cryptocurrency exchange-specific prices at 1-minute intervals.
-- [ ] Implement New York Fed adapter.
-- [ ] Add SOFR and EFFR from the New York Fed.
-- [ ] Add additional stock exchanges.
-- [ ] Add more ETF instruments.
-- [ ] Add additional forex pairs.
-- [ ] Add European government yields.
-- [ ] Add US Treasury yield curve.
-- [ ] Add commodities.
-- [ ] Add gold and silver.
-- [ ] Add oil and natural gas.
-- [ ] Create Commodities dashboard.
-- [ ] Add market indices where licensing permits.
-- [ ] Add additional macroeconomic indicators.
-- [ ] Improve instrument metadata.
-- [ ] Add integration tests.
+- [x] Implement Binance market data adapter.
+- [x] Add cryptocurrency exchange-specific prices at 1-minute intervals.
+- [x] Implement New York Fed adapter.
+- [x] Add SOFR and EFFR from the New York Fed.
+- [ ] Add additional stock exchanges. *Blocked: Twelve Data's free plan covers US listings only (for example, 4,329 of 4,331 London listings need the Grow plan).*
+- [x] Add more ETF instruments.
+- [x] Add additional forex pairs.
+- [x] Add European government yields.
+- [x] Add US Treasury yield curve.
+- [x] Add commodities.
+- [ ] Add gold and silver. *Gold is done; silver needs Twelve Data's Grow plan.*
+- [ ] Add oil and natural gas. *Blocked: WTI and Brent need Twelve Data's Grow plan, natural gas is not offered, and the EIA republishes both under third-party licences.*
+- [x] Create Commodities dashboard.
+- [ ] Add market indices where licensing permits. *None is available: every index on Twelve Data needs a paid plan, and no other configured provider is licensed to supply index levels.*
+- [x] Add additional macroeconomic indicators.
+- [x] Improve instrument metadata.
+- [x] Add integration tests.
+
+Delivered beyond the list: a US Treasury adapter (the primary source of the yield curve, public domain and keyless, so the curve does not depend on FRED), and OBFR from the New York Fed.
 
 ### Acceptance Criteria
 

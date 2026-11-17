@@ -78,7 +78,7 @@ async def ids(empty_database: AsyncEngine) -> AsyncIterator[Ids]:
         us10y = await instrument(
             "US10Y",
             AssetType.GOVERNMENT_BOND_YIELD,
-            metadata={"country": "US", "maturity": "10Y"},
+            metadata={"country": "US", "maturity": "10Y", "curve": "US Treasury"},
         )
         btc = await instrument("BTC/USD", AssetType.CRYPTO, currency="USD")
         for instrument_id, provider_id, symbol in (

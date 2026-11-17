@@ -110,6 +110,10 @@ Two kinds of rate are collected and must stay distinguishable. Where both exist 
 
 In scope for the initial release: **government benchmark yields** (for example the US Treasury curve and euro-area government yields), collected as yield observations.
 
+- The US Treasury par yield curve comes from the US Treasury, and also from FRED where FRED is enabled.
+- Euro-area yields are the ECB's estimated yield curves (AAA-rated issuers, and all issuers), not individual countries. Per-country long-term rates are only published as monthly averages, which are not point-in-time yields.
+- Each yield instrument records its `country`, `maturity` and `curve` in its metadata.
+
 Deferred: **individual bond data** (identifier, issuer, maturity date, coupon, price, yield to maturity). No initial provider supplies it. It will be specified when a suitable provider is added, and must then be kept distinct from benchmark yields.
 
 ### 3.6 Interest Rates
@@ -136,6 +140,8 @@ Collect (from Phase 8):
 - Natural gas
 - Other supported commodities
 
+Coverage depends on the provider's plan and licensing. Twelve Data's free plan supplies spot gold only; silver, crude oil and natural gas need its Grow plan. Free government sources (EIA) republish oil and gas spot prices under third-party licences (Refinitiv, NGI), so they are not used. Commodities not available under a suitable licence are not collected.
+
 ### 3.8 Economic Indicators
 
 Collect:
@@ -159,18 +165,19 @@ Collect (from Phase 8):
 - Index level
 - Historical levels
 
-Index data is subject to licensing. Only series the configured provider is permitted to distribute are collected.
+Index data is subject to licensing. Only series the configured provider is permitted to distribute are collected. None of the configured providers' free plans include index levels (Twelve Data offers them from its Grow plan), so no index is collected yet; index-tracking ETFs are collected as ETFs.
 
 ## 4. External Data Providers
 
 | Provider | Primary Purpose | Introduced |
 | --- | --- | --- |
-| Twelve Data | Stocks, ETFs, intraday forex, selected commodities | Phase 4 |
+| Twelve Data | US stocks, ETFs, intraday forex, spot gold | Phase 4 |
 | CoinGecko | Cryptocurrency prices and market data | Phase 4 |
 | ECB | Daily reference exchange rates, €STR, euro-area economic data | Phase 4 |
 | FRED | US economic indicators, Treasury yields, federal funds rate | Phase 4 |
 | Binance | Exchange-specific cryptocurrency market data at high frequency | Phase 8 |
-| New York Fed | US money market rates (SOFR, EFFR) from the primary source | Phase 8 |
+| New York Fed | US money market rates (SOFR, EFFR, OBFR) from the primary source | Phase 8 |
+| US Treasury | Daily Treasury par yield curve, from the primary source | Phase 8 |
 
 Additional providers may be introduced later.
 
@@ -599,12 +606,13 @@ Default intervals are set so that the default instrument set fits each provider'
 | Crypto prices and market data | CoinGecko | 5 minutes | Free Demo plan allows 10,000 calls per month; one batched call every 5 minutes uses 8,640 |
 | Crypto dominance | CoinGecko | 1 hour | 720 calls per month |
 | Crypto price history | CoinGecko | Daily | One call per coin: 300 per month for 10 coins. Only values older than 2 days, which CoinGecko no longer revises. |
-| Exchange-specific crypto prices | Binance (Phase 8) | 1 minute | Public market-data limits are generous; availability varies by region |
-| Intraday forex | Twelve Data | 15 minutes | Shares the Twelve Data daily quota |
+| Exchange-specific crypto prices | Binance | 1 minute | One request (weight 2) per minute; Binance allows 6,000 weight a minute per IP address. Availability varies by region. |
+| Intraday forex | Twelve Data | 30 minutes | Shares the Twelve Data daily quota |
+| Spot gold | Twelve Data | 30 minutes | Shares the Twelve Data daily quota |
 | Stocks and ETFs | Twelve Data | 15 minutes, during trading hours | Shares the Twelve Data daily quota |
 | Reference exchange rates | ECB | Daily | Published once per business day |
-| Government yields and policy rates | FRED, ECB | Daily | Source data is daily |
-| Money-market rates | New York Fed (Phase 8) | Daily | Source data is daily |
+| Government yields and policy rates | US Treasury, ECB, FRED | Daily | Source data is daily |
+| Money-market rates | New York Fed | Daily, after 14:30 New York time | Rates may be revised the same day until then |
 | Economic indicators | FRED, ECB | Daily check | Most series update monthly or quarterly |
 | Historical data | All | On demand | Counts against the same quotas |
 
@@ -614,9 +622,13 @@ The free plan allows 8 credits per minute and 800 per day, at one credit per sym
 
 | Group | Instruments | Polls per day | Credits per day |
 | --- | --- | --- | --- |
-| Stocks and ETFs (15 minutes over a 6.5-hour session) | 10 | 26 | 260 |
-| Forex pairs (15 minutes, 24 hours) | 5 | 96 | 480 |
-| **Total** | | | **740 of 800** |
+| Stocks and ETFs (15 minutes over a 6.5-hour session, counting both ends) | 14 | 27 | 378 |
+| Forex pairs (30 minutes, 24 hours) | 5 | 48 | 240 |
+| Spot gold (30 minutes, 24 hours) | 1 | 48 | 48 |
+| Daily candles, counted twice for their retry | 20 | 2 | 40 |
+| **Total** | | | **706 of 800** |
+
+Forex moved from 15 to 30 minutes in Phase 8 to make room for more ETFs and gold. The ECB's daily reference rates cover further currency pairs at no cost to this quota.
 
 Tracking more instruments or polling faster requires a paid plan or longer intervals.
 

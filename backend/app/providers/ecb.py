@@ -35,6 +35,7 @@ class _QuoteFlow:
 
     # "currency": exchange rates, quoted in the series' CURRENCY. "percent": rates.
     unit: str
+    observation_type: ObservationType = ObservationType.RATE
 
 
 # Dataflows whose series are stored as instrument quotes. Anything else is
@@ -46,6 +47,8 @@ _QUOTE_FLOWS = {
     "EST": _QuoteFlow(unit="percent"),
     # Financial market data, including the ECB's key interest rates.
     "FM": _QuoteFlow(unit="percent"),
+    # Euro-area government bond yield curves (spot rates by maturity).
+    "YC": _QuoteFlow(unit="percent", observation_type=ObservationType.YIELD),
 }
 
 
@@ -162,7 +165,14 @@ class EcbProvider(Provider):
         earlier collection is filled in; values already stored are not
         written again. One request per dataflow.
         """
-        if observation_types is not None and ObservationType.RATE not in observation_types:
+        if observation_types is not None:
+            symbols = [
+                symbol
+                for symbol in symbols
+                if (flow := _QUOTE_FLOWS.get(symbol.partition("/")[0])) is None
+                or flow.observation_type in observation_types
+            ]
+        if not symbols:
             return []
         return await self._quotes(symbols, {"lastNObservations": _LATEST_OBSERVATIONS})
 
@@ -222,7 +232,7 @@ class EcbProvider(Provider):
             currency, unit = None, "percent"
         return Quote(
             provider_symbol=symbol,
-            observation_type=ObservationType.RATE,
+            observation_type=_QUOTE_FLOWS[flow].observation_type,
             observed_at=observation.period,
             value=observation.value,
             currency=currency,

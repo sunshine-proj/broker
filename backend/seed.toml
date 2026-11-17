@@ -103,10 +103,14 @@ trading_close = "16:00"
 # minute, restored on the minute, and 800 per day, restored at midnight UTC.
 # One credit per symbol. See docs/providers/twelve_data.md.
 #
-# Budget (PRD section 8): 10 stocks and ETFs polled every 15 minutes over a
-# 6.5-hour session use 260 credits a day, and 5 forex pairs polled every 15
-# minutes around the clock use 480: 740 of 800. Adding instruments needs a
-# longer interval or a paid plan.
+# Budget (PRD section 8): 14 stocks and ETFs polled every 15 minutes over a
+# 6.5-hour session, 5 forex pairs and gold polled every 30 minutes around the
+# clock, and one daily candle per instrument: 706 of 800 a day (see the jobs
+# section). Adding instruments needs a longer interval or a paid plan.
+#
+# The free plan covers US listings only, no market indices, and of the
+# commodities only gold (XAU/USD); silver, oil and natural gas need the Grow
+# plan (checked 2026-11-17).
 
 [[providers]]
 name = "twelve_data"
@@ -119,8 +123,9 @@ rate_limits = [
 ]
 # One credit per symbol, so a request can carry at most a minute's worth.
 max_batch_size = 8
-# A batch that has to wait for the next minute's credits must not be refused.
-rate_limit_max_wait_seconds = 65
+# At :00 and :30 the listed, forex and gold jobs together need 20 credits,
+# which take three minutes at 8 a minute; the last request must not be refused.
+rate_limit_max_wait_seconds = 190
 # A rejected request still uses a credit, so after HTTP 429 the client waits
 # for the next minute (up to 61 seconds) instead of retrying early.
 max_retries = 2
@@ -136,6 +141,7 @@ name = "Apple Inc."
 asset_type = "stock"
 exchange = "XNAS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000B9Y5X2" }
 providers = { twelve_data = "AAPL" }
 
 [[instruments]]
@@ -144,6 +150,7 @@ name = "Microsoft Corporation"
 asset_type = "stock"
 exchange = "XNAS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000BPHFS9" }
 providers = { twelve_data = "MSFT" }
 
 [[instruments]]
@@ -152,6 +159,7 @@ name = "NVIDIA Corporation"
 asset_type = "stock"
 exchange = "XNAS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000BBK0R0" }
 providers = { twelve_data = "NVDA" }
 
 [[instruments]]
@@ -160,6 +168,7 @@ name = "Amazon.com, Inc."
 asset_type = "stock"
 exchange = "XNAS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000BVQ4Z3" }
 providers = { twelve_data = "AMZN" }
 
 [[instruments]]
@@ -168,6 +177,7 @@ name = "Alphabet Inc. Class A"
 asset_type = "stock"
 exchange = "XNAS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG009S4MT03" }
 providers = { twelve_data = "GOOGL" }
 
 [[instruments]]
@@ -176,6 +186,7 @@ name = "JPMorgan Chase & Co."
 asset_type = "stock"
 exchange = "XNYS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000DMBZW1" }
 providers = { twelve_data = "JPM" }
 
 [[instruments]]
@@ -184,6 +195,7 @@ name = "Exxon Mobil Corporation"
 asset_type = "stock"
 exchange = "XNYS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG023CY9MR6" }
 providers = { twelve_data = "XOM" }
 
 # ETFs
@@ -194,6 +206,7 @@ name = "SPDR S&P 500 ETF Trust"
 asset_type = "etf"
 exchange = "ARCX"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000BDTF76", issuer = "State Street", focus = "US large-cap equities (S&P 500)" }
 providers = { twelve_data = "SPY" }
 
 [[instruments]]
@@ -202,6 +215,7 @@ name = "Invesco QQQ Trust"
 asset_type = "etf"
 exchange = "XNAS"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000BSWN45", issuer = "Invesco", focus = "US large-cap equities (Nasdaq-100)" }
 providers = { twelve_data = "QQQ" }
 
 [[instruments]]
@@ -210,7 +224,44 @@ name = "Vanguard Total Stock Market ETF"
 asset_type = "etf"
 exchange = "ARCX"
 currency = "USD"
+metadata = { country = "US", figi = "BBG000HRBDF4", issuer = "Vanguard", focus = "US total stock market" }
 providers = { twelve_data = "VTI" }
+
+[[instruments]]
+symbol = "IWM"
+name = "iShares Russell 2000 ETF"
+asset_type = "etf"
+exchange = "ARCX"
+currency = "USD"
+metadata = { country = "US", figi = "BBG000CGCCL7", issuer = "BlackRock iShares", focus = "US small-cap equities (Russell 2000)" }
+providers = { twelve_data = "IWM" }
+
+[[instruments]]
+symbol = "EFA"
+name = "iShares MSCI EAFE ETF"
+asset_type = "etf"
+exchange = "ARCX"
+currency = "USD"
+metadata = { country = "US", figi = "BBG000D2LV99", issuer = "BlackRock iShares", focus = "Developed-market equities outside North America" }
+providers = { twelve_data = "EFA" }
+
+[[instruments]]
+symbol = "AGG"
+name = "iShares Core U.S. Aggregate Bond ETF"
+asset_type = "etf"
+exchange = "ARCX"
+currency = "USD"
+metadata = { country = "US", figi = "BBG000Q126X6", issuer = "BlackRock iShares", focus = "US investment-grade bonds" }
+providers = { twelve_data = "AGG" }
+
+[[instruments]]
+symbol = "GLD"
+name = "SPDR Gold Shares"
+asset_type = "etf"
+exchange = "ARCX"
+currency = "USD"
+metadata = { country = "US", figi = "BBG000CRGBW9", issuer = "State Street", focus = "Physical gold" }
+providers = { twelve_data = "GLD" }
 
 # Forex: symbol is BASE/QUOTE and currency is the quote currency. EUR/USD and
 # EUR/GBP also carry the ECB's daily reference rate (see the ECB section).
@@ -220,6 +271,7 @@ symbol = "EUR/USD"
 name = "Euro / US Dollar"
 asset_type = "forex"
 currency = "USD"
+metadata = { base = "EUR", quote = "USD" }
 providers = { twelve_data = "EUR/USD", ecb = "EXR/D.USD.EUR.SP00.A" }
 
 [[instruments]]
@@ -227,6 +279,7 @@ symbol = "GBP/USD"
 name = "British Pound / US Dollar"
 asset_type = "forex"
 currency = "USD"
+metadata = { base = "GBP", quote = "USD" }
 providers = { twelve_data = "GBP/USD" }
 
 [[instruments]]
@@ -234,6 +287,7 @@ symbol = "USD/JPY"
 name = "US Dollar / Japanese Yen"
 asset_type = "forex"
 currency = "JPY"
+metadata = { base = "USD", quote = "JPY" }
 providers = { twelve_data = "USD/JPY" }
 
 [[instruments]]
@@ -241,6 +295,7 @@ symbol = "USD/CHF"
 name = "US Dollar / Swiss Franc"
 asset_type = "forex"
 currency = "CHF"
+metadata = { base = "USD", quote = "CHF" }
 providers = { twelve_data = "USD/CHF" }
 
 [[instruments]]
@@ -248,7 +303,19 @@ symbol = "EUR/GBP"
 name = "Euro / British Pound"
 asset_type = "forex"
 currency = "GBP"
+metadata = { base = "EUR", quote = "GBP" }
 providers = { twelve_data = "EUR/GBP", ecb = "EXR/D.GBP.EUR.SP00.A" }
+
+# Commodities. Spot gold is quoted like a currency pair: US dollars per troy
+# ounce. It is an indicative over-the-counter price, not an exchange trade.
+
+[[instruments]]
+symbol = "XAU/USD"
+name = "Gold spot"
+asset_type = "commodity"
+currency = "USD"
+metadata = { commodity = "gold", group = "precious metals", unit_of_measure = "troy ounce" }
+providers = { twelve_data = "XAU/USD" }
 
 # --- CoinGecko -----------------------------------------------------------------
 # Works without a key (keyless public API, about 5 calls a minute, shared by
@@ -286,6 +353,7 @@ symbol = "BTC/USD"
 name = "Bitcoin"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "BTC", quote = "USD" }
 providers = { coingecko = "bitcoin/usd" }
 
 [[instruments]]
@@ -293,6 +361,7 @@ symbol = "ETH/USD"
 name = "Ethereum"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "ETH", quote = "USD" }
 providers = { coingecko = "ethereum/usd" }
 
 [[instruments]]
@@ -300,6 +369,7 @@ symbol = "USDT/USD"
 name = "Tether"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "USDT", quote = "USD" }
 providers = { coingecko = "tether/usd" }
 
 [[instruments]]
@@ -307,6 +377,7 @@ symbol = "BNB/USD"
 name = "BNB"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "BNB", quote = "USD" }
 providers = { coingecko = "binancecoin/usd" }
 
 [[instruments]]
@@ -314,6 +385,7 @@ symbol = "XRP/USD"
 name = "XRP"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "XRP", quote = "USD" }
 providers = { coingecko = "ripple/usd" }
 
 [[instruments]]
@@ -321,6 +393,7 @@ symbol = "USDC/USD"
 name = "USD Coin"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "USDC", quote = "USD" }
 providers = { coingecko = "usd-coin/usd" }
 
 [[instruments]]
@@ -328,6 +401,7 @@ symbol = "SOL/USD"
 name = "Solana"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "SOL", quote = "USD" }
 providers = { coingecko = "solana/usd" }
 
 [[instruments]]
@@ -335,6 +409,7 @@ symbol = "TRX/USD"
 name = "TRON"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "TRX", quote = "USD" }
 providers = { coingecko = "tron/usd" }
 
 [[instruments]]
@@ -342,6 +417,7 @@ symbol = "DOGE/USD"
 name = "Dogecoin"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "DOGE", quote = "USD" }
 providers = { coingecko = "dogecoin/usd" }
 
 [[instruments]]
@@ -349,6 +425,7 @@ symbol = "ADA/USD"
 name = "Cardano"
 asset_type = "crypto"
 currency = "USD"
+metadata = { base = "ADA", quote = "USD" }
 providers = { coingecko = "cardano/usd" }
 
 # --- European Central Bank --------------------------------------------------------
@@ -378,6 +455,7 @@ symbol = "EUR/JPY"
 name = "Euro / Japanese Yen"
 asset_type = "forex"
 currency = "JPY"
+metadata = { base = "EUR", quote = "JPY" }
 providers = { ecb = "EXR/D.JPY.EUR.SP00.A" }
 
 [[instruments]]
@@ -385,7 +463,148 @@ symbol = "EUR/CHF"
 name = "Euro / Swiss Franc"
 asset_type = "forex"
 currency = "CHF"
+metadata = { base = "EUR", quote = "CHF" }
 providers = { ecb = "EXR/D.CHF.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/AUD"
+name = "Euro / Australian Dollar"
+asset_type = "forex"
+currency = "AUD"
+metadata = { base = "EUR", quote = "AUD" }
+providers = { ecb = "EXR/D.AUD.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/CAD"
+name = "Euro / Canadian Dollar"
+asset_type = "forex"
+currency = "CAD"
+metadata = { base = "EUR", quote = "CAD" }
+providers = { ecb = "EXR/D.CAD.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/CNY"
+name = "Euro / Chinese Yuan Renminbi"
+asset_type = "forex"
+currency = "CNY"
+metadata = { base = "EUR", quote = "CNY" }
+providers = { ecb = "EXR/D.CNY.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/SEK"
+name = "Euro / Swedish Krona"
+asset_type = "forex"
+currency = "SEK"
+metadata = { base = "EUR", quote = "SEK" }
+providers = { ecb = "EXR/D.SEK.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/NOK"
+name = "Euro / Norwegian Krone"
+asset_type = "forex"
+currency = "NOK"
+metadata = { base = "EUR", quote = "NOK" }
+providers = { ecb = "EXR/D.NOK.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/DKK"
+name = "Euro / Danish Krone"
+asset_type = "forex"
+currency = "DKK"
+metadata = { base = "EUR", quote = "DKK" }
+providers = { ecb = "EXR/D.DKK.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/PLN"
+name = "Euro / Polish Zloty"
+asset_type = "forex"
+currency = "PLN"
+metadata = { base = "EUR", quote = "PLN" }
+providers = { ecb = "EXR/D.PLN.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/CZK"
+name = "Euro / Czech Koruna"
+asset_type = "forex"
+currency = "CZK"
+metadata = { base = "EUR", quote = "CZK" }
+providers = { ecb = "EXR/D.CZK.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/HUF"
+name = "Euro / Hungarian Forint"
+asset_type = "forex"
+currency = "HUF"
+metadata = { base = "EUR", quote = "HUF" }
+providers = { ecb = "EXR/D.HUF.EUR.SP00.A" }
+
+[[instruments]]
+symbol = "EUR/INR"
+name = "Euro / Indian Rupee"
+asset_type = "forex"
+currency = "INR"
+metadata = { base = "EUR", quote = "INR" }
+providers = { ecb = "EXR/D.INR.EUR.SP00.A" }
+
+# Euro-area government yield curves: spot rates estimated by the ECB from
+# central government bonds, in percent, per business day. "AAA" uses AAA-rated
+# issuers only; "all" uses every euro area issuer.
+
+[[instruments]]
+symbol = "EA-AAA-2Y"
+name = "Euro area 2-year government yield, AAA"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "2Y", curve = "Euro area AAA", basis = "spot rate, AAA-rated euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y" }
+
+[[instruments]]
+symbol = "EA-AAA-5Y"
+name = "Euro area 5-year government yield, AAA"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "5Y", curve = "Euro area AAA", basis = "spot rate, AAA-rated euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_5Y" }
+
+[[instruments]]
+symbol = "EA-AAA-10Y"
+name = "Euro area 10-year government yield, AAA"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "10Y", curve = "Euro area AAA", basis = "spot rate, AAA-rated euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y" }
+
+[[instruments]]
+symbol = "EA-AAA-30Y"
+name = "Euro area 30-year government yield, AAA"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "30Y", curve = "Euro area AAA", basis = "spot rate, AAA-rated euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_30Y" }
+
+[[instruments]]
+symbol = "EA-ALL-2Y"
+name = "Euro area 2-year government yield, all issuers"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "2Y", curve = "Euro area all issuers", basis = "spot rate, all euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_C.SV_C_YM.SR_2Y" }
+
+[[instruments]]
+symbol = "EA-ALL-5Y"
+name = "Euro area 5-year government yield, all issuers"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "5Y", curve = "Euro area all issuers", basis = "spot rate, all euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_C.SV_C_YM.SR_5Y" }
+
+[[instruments]]
+symbol = "EA-ALL-10Y"
+name = "Euro area 10-year government yield, all issuers"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "10Y", curve = "Euro area all issuers", basis = "spot rate, all euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_C.SV_C_YM.SR_10Y" }
+
+[[instruments]]
+symbol = "EA-ALL-30Y"
+name = "Euro area 30-year government yield, all issuers"
+asset_type = "government_bond_yield"
+metadata = { country = "EA", maturity = "30Y", curve = "Euro area all issuers", basis = "spot rate, all euro area central government bonds" }
+providers = { ecb = "YC/B.U2.EUR.4F.G_N_C.SV_C_YM.SR_30Y" }
 
 # Interest rates, in percent per annum.
 
@@ -393,7 +612,7 @@ providers = { ecb = "EXR/D.CHF.EUR.SP00.A" }
 symbol = "ESTR"
 name = "Euro short-term rate (€STR)"
 asset_type = "interest_rate"
-metadata = { area = "euro area" }
+metadata = { area = "euro area", administrator = "European Central Bank" }
 providers = { ecb = "EST/B.EU000A2X2A25.WT" }
 
 [[instruments]]
@@ -448,6 +667,33 @@ provider = "ecb"
 provider_series_code = "GFS/A.N.I9.W0.S13.S1.C.L.LE.GD.T._Z.XDC_R_B1GQ._T.F.V.N._T"
 metadata = { area = "euro area" }
 
+[[indicators]]
+code = "EA_CORE_HICP_YOY"
+name = "Euro area HICP excluding energy and food, annual rate of change"
+unit = "percent"
+frequency = "monthly"
+provider = "ecb"
+provider_series_code = "ICP/M.U2.N.XEF000.4.ANR"
+metadata = { area = "euro area" }
+
+[[indicators]]
+code = "EA_INDUSTRIAL_PRODUCTION"
+name = "Euro area industrial production excluding construction, working-day and seasonally adjusted"
+unit = "index_2021_100"
+frequency = "monthly"
+provider = "ecb"
+provider_series_code = "STS/M.I9.Y.PROD.NS0020.4.000"
+metadata = { area = "euro area" }
+
+[[indicators]]
+code = "EA_M3_GROWTH_YOY"
+name = "Euro area monetary aggregate M3, annual growth rate"
+unit = "percent"
+frequency = "monthly"
+provider = "ecb"
+provider_series_code = "BSI/M.U2.Y.V.M30.X.I.U2.2300.Z01.A"
+metadata = { area = "euro area" }
+
 # --- FRED (Federal Reserve Bank of St. Louis) -------------------------------------
 # Needs a free API key in FRED_API_KEY. Symbols and series codes are FRED series
 # ids; find them with `python -m app.cli search fred QUERY`. FRED allows 120
@@ -464,49 +710,51 @@ backoff_base_seconds = 5
 backoff_max_seconds = 60
 auth = { type = "query", name = "api_key", env = "FRED_API_KEY" }
 
-# US Treasury constant maturity yields, in percent (H.15 release).
+# US Treasury constant maturity yields, in percent (H.15 release). The same
+# yields also come from the US Treasury itself (see its section below); the
+# two providers are stored side by side, never merged.
 
 [[instruments]]
 symbol = "US1M"
 name = "US Treasury 1-month yield"
 asset_type = "government_bond_yield"
-metadata = { country = "US", maturity = "1M" }
-providers = { fred = "DGS1MO" }
+metadata = { country = "US", maturity = "1M", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { fred = "DGS1MO", us_treasury = "BC_1MONTH" }
 
 [[instruments]]
 symbol = "US3M"
 name = "US Treasury 3-month yield"
 asset_type = "government_bond_yield"
-metadata = { country = "US", maturity = "3M" }
-providers = { fred = "DGS3MO" }
+metadata = { country = "US", maturity = "3M", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { fred = "DGS3MO", us_treasury = "BC_3MONTH" }
 
 [[instruments]]
 symbol = "US2Y"
 name = "US Treasury 2-year yield"
 asset_type = "government_bond_yield"
-metadata = { country = "US", maturity = "2Y" }
-providers = { fred = "DGS2" }
+metadata = { country = "US", maturity = "2Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { fred = "DGS2", us_treasury = "BC_2YEAR" }
 
 [[instruments]]
 symbol = "US5Y"
 name = "US Treasury 5-year yield"
 asset_type = "government_bond_yield"
-metadata = { country = "US", maturity = "5Y" }
-providers = { fred = "DGS5" }
+metadata = { country = "US", maturity = "5Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { fred = "DGS5", us_treasury = "BC_5YEAR" }
 
 [[instruments]]
 symbol = "US10Y"
 name = "US Treasury 10-year yield"
 asset_type = "government_bond_yield"
-metadata = { country = "US", maturity = "10Y" }
-providers = { fred = "DGS10" }
+metadata = { country = "US", maturity = "10Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { fred = "DGS10", us_treasury = "BC_10YEAR" }
 
 [[instruments]]
 symbol = "US30Y"
 name = "US Treasury 30-year yield"
 asset_type = "government_bond_yield"
-metadata = { country = "US", maturity = "30Y" }
-providers = { fred = "DGS30" }
+metadata = { country = "US", maturity = "30Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { fred = "DGS30", us_treasury = "BC_30YEAR" }
 
 # Interest rates, in percent.
 
@@ -514,8 +762,8 @@ providers = { fred = "DGS30" }
 symbol = "EFFR"
 name = "Effective federal funds rate"
 asset_type = "interest_rate"
-metadata = { country = "US" }
-providers = { fred = "DFF" }
+metadata = { country = "US", administrator = "Federal Reserve Bank of New York" }
+providers = { fred = "DFF", nyfed = "EFFR" }
 
 # US economic indicators. Each period is dated by its first day.
 
@@ -573,10 +821,159 @@ frequency = "quarterly"
 provider = "fred"
 provider_series_code = "GFDEGDQ188S"
 
+# --- Binance ---------------------------------------------------------------------
+# Public spot market data, no key. Binance limits request weight per IP
+# address: 6,000 a minute (checked 2026-11-17). The limit below is a fifth of
+# that, leaving room for anything else on the same address. Binance refuses
+# some regions (HTTP 451); data-api.binance.vision serves the same market data
+# and is used here. See docs/providers/binance.md.
+#
+# Budget: one ticker request (weight 2) a minute covers up to 20 pairs:
+# 2,880 a day. Daily candles add 2 per pair.
+
+[[providers]]
+name = "binance"
+base_url = "https://data-api.binance.vision/api/v3"
+
+[providers.configuration]
+rate_limits = [{ limit = 1200, period = "minute" }]
+# Binance answers HTTP 429 with Retry-After; repeated violations get the
+# address banned (HTTP 418), so retries are few and slow.
+max_retries = 1
+backoff_base_seconds = 10
+backoff_max_seconds = 60
+
+# Exchange-specific pairs: symbol is BASE/QUOTE and currency is the quote
+# asset. Binance quotes against Tether (USDT), not US dollars, so these are
+# separate instruments from the CoinGecko USD prices.
+
+[[instruments]]
+symbol = "BTC/USDT"
+name = "Bitcoin / Tether on Binance"
+asset_type = "crypto"
+currency = "USDT"
+metadata = { base = "BTC", quote = "USDT", venue = "Binance" }
+providers = { binance = "BTC/USDT" }
+
+[[instruments]]
+symbol = "ETH/USDT"
+name = "Ethereum / Tether on Binance"
+asset_type = "crypto"
+currency = "USDT"
+metadata = { base = "ETH", quote = "USDT", venue = "Binance" }
+providers = { binance = "ETH/USDT" }
+
+[[instruments]]
+symbol = "BNB/USDT"
+name = "BNB / Tether on Binance"
+asset_type = "crypto"
+currency = "USDT"
+metadata = { base = "BNB", quote = "USDT", venue = "Binance" }
+providers = { binance = "BNB/USDT" }
+
+[[instruments]]
+symbol = "SOL/USDT"
+name = "Solana / Tether on Binance"
+asset_type = "crypto"
+currency = "USDT"
+metadata = { base = "SOL", quote = "USDT", venue = "Binance" }
+providers = { binance = "SOL/USDT" }
+
+[[instruments]]
+symbol = "XRP/USDT"
+name = "XRP / Tether on Binance"
+asset_type = "crypto"
+currency = "USDT"
+metadata = { base = "XRP", quote = "USDT", venue = "Binance" }
+providers = { binance = "XRP/USDT" }
+
+# --- Federal Reserve Bank of New York ------------------------------------------------
+# Markets Data API, no key. The reference rates the New York Fed administers,
+# published each business day at 08:00 (SOFR) and 09:00 (EFFR, OBFR) New York
+# time. No rate limit is published; this is a courtesy limit.
+# Checked 2026-11-17. See docs/providers/nyfed.md, including its attribution.
+
+[[providers]]
+name = "nyfed"
+base_url = "https://markets.newyorkfed.org/api"
+
+[providers.configuration]
+rate_limits = [{ limit = 30, period = "minute" }]
+timeout_seconds = 20
+
+[[instruments]]
+symbol = "SOFR"
+name = "Secured overnight financing rate"
+asset_type = "interest_rate"
+metadata = { country = "US", administrator = "Federal Reserve Bank of New York" }
+providers = { nyfed = "SOFR" }
+
+[[instruments]]
+symbol = "OBFR"
+name = "Overnight bank funding rate"
+asset_type = "interest_rate"
+metadata = { country = "US", administrator = "Federal Reserve Bank of New York" }
+providers = { nyfed = "OBFR" }
+
+# EFFR is listed with FRED above; the New York Fed is its source.
+
+# --- US Department of the Treasury --------------------------------------------------
+# Daily Treasury Par Yield Curve Rates, from the Treasury's public XML feed. No
+# key; US government data in the public domain. Symbols are the feed's field
+# names. No rate limit is published; this is a courtesy limit.
+# Checked 2026-11-17. See docs/providers/us_treasury.md.
+
+[[providers]]
+name = "us_treasury"
+base_url = "https://home.treasury.gov/resource-center/data-chart-center/interest-rates"
+
+[providers.configuration]
+rate_limits = [{ limit = 10, period = "minute" }]
+# A year's feed takes about 20 seconds to arrive (measured 2026-11-17).
+timeout_seconds = 60
+
+# The 1-month to 30-year maturities shared with FRED are listed with FRED above.
+
+[[instruments]]
+symbol = "US6M"
+name = "US Treasury 6-month yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "6M", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { us_treasury = "BC_6MONTH" }
+
+[[instruments]]
+symbol = "US1Y"
+name = "US Treasury 1-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "1Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { us_treasury = "BC_1YEAR" }
+
+[[instruments]]
+symbol = "US3Y"
+name = "US Treasury 3-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "3Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { us_treasury = "BC_3YEAR" }
+
+[[instruments]]
+symbol = "US7Y"
+name = "US Treasury 7-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "7Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { us_treasury = "BC_7YEAR" }
+
+[[instruments]]
+symbol = "US20Y"
+name = "US Treasury 20-year yield"
+asset_type = "government_bond_yield"
+metadata = { country = "US", maturity = "20Y", curve = "US Treasury", basis = "par yield, constant maturity" }
+providers = { us_treasury = "BC_20YEAR" }
+
 # --- Collection jobs ---------------------------------------------------------------
 # Times are UTC. Budgets (per provider sections above):
-#   Twelve Data: 10 listed x 27 polls (09:30 to 16:00 New York, both ends)
-#                + 5 forex x 96 polls + 15 candles x 2 (with retry) = 780 of 800 a day.
+#   Twelve Data: 14 listed x 27 polls (09:30 to 16:00 New York, both ends)
+#                + 5 forex x 48 polls + 1 gold x 48 polls
+#                + 20 candles x 2 (with retry) = 706 of 800 a day.
 #   CoinGecko:   288 market polls + 12 dominance polls x 2 requests = 312 a day,
 #                9,672 in a 31-day month, of 10,000.
 
@@ -593,16 +990,24 @@ name = "twelve_data_forex_quotes"
 provider = "twelve_data"
 kind = "quotes"
 asset_types = ["forex"]
-interval_minutes = 15
+interval_minutes = 30
 
-# Daily bars are dated at midnight UTC and closed 24 hours later.
+[[jobs]]
+name = "twelve_data_commodity_quotes"
+provider = "twelve_data"
+kind = "quotes"
+asset_types = ["commodity"]
+interval_minutes = 30
+
+# Daily bars are dated at midnight UTC and closed 24 hours later. 00:40 keeps
+# the run clear of the quote jobs at 00:30 and 01:00.
 [[jobs]]
 name = "twelve_data_daily_candles"
 provider = "twelve_data"
 kind = "candles"
 candle_interval = "1day"
 lookback_days = 5
-daily_at = "00:30"
+daily_at = "00:40"
 retry_minutes = 60
 
 [[jobs]]
@@ -633,6 +1038,41 @@ provider = "ecb"
 kind = "indicators"
 lookback_days = 730
 daily_at = "10:00"
+retry_minutes = 60
+
+# Exchange prices every minute. Volume comes with the daily candles.
+[[jobs]]
+name = "binance_quotes"
+provider = "binance"
+kind = "quotes"
+observation_types = ["price"]
+interval_minutes = 1
+
+[[jobs]]
+name = "binance_daily_candles"
+provider = "binance"
+kind = "candles"
+candle_interval = "1day"
+lookback_days = 5
+daily_at = "00:10"
+retry_minutes = 30
+
+# SOFR is published at 08:00 and EFFR and OBFR at 09:00 New York time, and may
+# be revised the same day at about 14:30 (18:30 or 19:30 UTC). Stored values are
+# immutable, so collect after the revision window.
+[[jobs]]
+name = "nyfed_quotes"
+provider = "nyfed"
+kind = "quotes"
+daily_at = "20:30"
+retry_minutes = 60
+
+# The Treasury posts the day's curve in the late afternoon, New York time.
+[[jobs]]
+name = "us_treasury_quotes"
+provider = "us_treasury"
+kind = "quotes"
+daily_at = "23:30"
 retry_minutes = 60
 
 # FRED jobs are disabled until FRED_API_KEY is set and its terms of use are

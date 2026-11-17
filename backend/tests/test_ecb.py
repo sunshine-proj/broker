@@ -1,7 +1,7 @@
 """ECB adapter, against responses recorded from the live ECB Data Portal.
 
 The fixtures under tests/fixtures/ecb/ are unmodified API responses
-(recorded 2026-11-16). No test calls the network.
+(recorded 2026-11-16; the yield curve 2026-11-17). No test calls the network.
 """
 
 import json
@@ -165,6 +165,45 @@ async def test_no_data_is_an_empty_result() -> None:
     )
 
     assert quotes == []
+
+
+# --- Government yields -------------------------------------------------------------------
+
+YC_2Y = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y"
+YC_10Y = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y"
+
+
+async def test_yield_curve_spot_rates_are_yields_at_full_precision() -> None:
+    api = Api(YC=recorded("yield_curve_latest.json"))
+
+    quotes = await provider(api).fetch_quotes([YC_2Y, YC_10Y])
+
+    assert values(quotes, YC_10Y) == [
+        (datetime(2026, 11, 12, tzinfo=UTC), Decimal("3.3672459164")),
+        (datetime(2026, 11, 13, tzinfo=UTC), Decimal("3.4115908883")),
+    ]
+    assert values(quotes, YC_2Y)[-1] == (
+        datetime(2026, 11, 13, tzinfo=UTC),
+        Decimal("3.0718048758"),
+    )
+    assert {q.observation_type for q in quotes} == {ObservationType.YIELD}
+    assert {(q.unit, q.currency, q.quote_kind) for q in quotes} == {
+        ("percent", None, QuoteKind.REFERENCE)
+    }
+    # Both maturities in one request.
+    assert api.keys() == ["YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y+SR_10Y"]
+
+
+async def test_observation_types_select_dataflows() -> None:
+    api = Api(YC=recorded("yield_curve_latest.json"), EST=recorded("estr_latest.json"))
+
+    yields = await provider(api).fetch_quotes([YC_10Y, ESTR], {ObservationType.YIELD})
+    rates = await provider(api).fetch_quotes([YC_10Y, ESTR], {ObservationType.RATE})
+
+    assert {q.provider_symbol for q in yields} == {YC_10Y}
+    assert {q.provider_symbol for q in rates} == {ESTR}
+    requested = api.keys()
+    assert [key.split("/")[0] for key in requested] == ["YC", "EST"]
 
 
 # --- Interest rates -----------------------------------------------------------------------
@@ -345,6 +384,10 @@ def test_shipped_seed_configures_the_ecb(settings: Settings) -> None:
         if flow == "EXR":
             assert instrument.asset_type is AssetType.FOREX
             assert key.split(".")[1] == instrument.currency == instrument.symbol.split("/")[1]
+        elif flow == "YC":
+            assert instrument.asset_type is AssetType.GOVERNMENT_BOND_YIELD
+            assert instrument.metadata is not None
+            assert key.endswith(f"SR_{instrument.metadata['maturity']}")
         else:
             assert instrument.asset_type is AssetType.INTEREST_RATE
             assert instrument.currency is None

@@ -70,7 +70,7 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 4
+        "h": 5
       },
       "fieldConfig": {
         "defaults": {},
@@ -78,7 +78,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Source: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+        "content": "Source: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates are published for information purposes only.  \nSOFR, EFFR and OBFR are subject to the [Terms of Use](https://www.newyorkfed.org/privacy/termsofuse.html) posted at newyorkfed.org. The New York Fed is not responsible for publication of these rates by this platform, does not sanction or endorse any particular republication, and has no liability for your use. SOFR is calculated using data provided under a license granted to the New York Fed by DTCC Solutions LLC.  \n**This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
       },
       "id": 1
     },
@@ -88,7 +88,7 @@
       "description": "",
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 5,
         "w": 24,
         "h": 8
       },
@@ -144,7 +144,7 @@
       "description": "Central bank rates are recorded on the dates they change and drawn as steps; nothing is filled in between.",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 13,
         "w": 24,
         "h": 11
       },
@@ -196,10 +196,10 @@
     {
       "type": "table",
       "title": "Data freshness",
-      "description": "€STR is daily. Policy rates only change at central bank decisions, so their age is expected to be large.",
+      "description": "€STR, SOFR, EFFR and OBFR are published each business day. Policy rates only change at central bank decisions, so their age is expected to be large.",
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 24,
         "w": 24,
         "h": 6
       },

@@ -1,7 +1,7 @@
 """Twelve Data adapter, against responses recorded from the real API.
 
 The fixtures under tests/fixtures/twelve_data/ are unmodified API responses
-(recorded 2026-11-16). No test calls the network.
+(recorded 2026-11-16; quote_gold.json 2026-11-17). No test calls the network.
 """
 
 import json
@@ -413,12 +413,30 @@ def test_shipped_seed_configures_twelve_data_within_its_budget(settings: Setting
     tracked = [i for i in seed.instruments if "twelve_data" in i.providers and i.enabled]
     forex = [i for i in tracked if i.asset_type is AssetType.FOREX]
     listed = [i for i in tracked if i.asset_type in (AssetType.STOCK, AssetType.ETF)]
-    assert len(forex) + len(listed) == len(tracked)
-    # PRD section 8: every 15 minutes, listed instruments over a 6.5-hour session
-    # (26 polls) and forex around the clock (96 polls), one credit per symbol.
-    assert len(listed) * 26 + len(forex) * 96 <= limits["day"]
-    # Forex pairs are quoted in the pair's quote currency.
-    assert all(i.symbol.split("/")[1] == i.currency for i in forex)
+    commodities = [i for i in tracked if i.asset_type is AssetType.COMMODITY]
+    assert len(forex) + len(listed) + len(commodities) == len(tracked)
+    # PRD section 8: listed instruments every 15 minutes over a 6.5-hour session
+    # (27 polls counting both ends), forex and commodities every 30 minutes
+    # around the clock (48 polls), and a daily candle (counted twice, for its
+    # retry), one credit per symbol.
+    daily = len(listed) * 27 + (len(forex) + len(commodities)) * 48 + len(tracked) * 2
+    assert daily <= limits["day"]
+    # Pairs are quoted in the pair's quote currency.
+    assert all(i.symbol.split("/")[1] == i.currency for i in forex + commodities)
+    # Only gold is on the free plan (PRD section 3.7).
+    assert [i.symbol for i in commodities] == ["XAU/USD"]
+
+
+async def test_spot_gold_is_an_indicative_price_in_the_quote_currency() -> None:
+    api = Api(recorded("quote_gold"))
+
+    (quote,) = await provider(api).fetch_quotes(["XAU/USD"])
+
+    assert quote.observation_type is ObservationType.PRICE
+    assert (quote.value, quote.currency, quote.unit) == (Decimal("3875.44042"), "USD", "currency")
+    # An over-the-counter spot quote, not an exchange trade.
+    assert quote.quote_kind is QuoteKind.INDICATIVE
+    assert quote.observed_at == datetime.fromtimestamp(1794897780, UTC)
 
 
 async def test_only_the_requested_observation_types_are_returned() -> None:

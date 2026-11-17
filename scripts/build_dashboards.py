@@ -26,7 +26,10 @@ SCHEMA_VERSION = 41
 
 # Shown wherever a provider's data is displayed, as its licence requires.
 ATTRIBUTION = {
-    "twelve_data": "Stock, ETF and intraday currency data: [Twelve Data](https://twelvedata.com).",
+    "twelve_data": (
+        "Stock, ETF, intraday currency and gold data: [Twelve Data](https://twelvedata.com)."
+    ),
+    "binance": "Exchange prices: [Binance](https://www.binance.com) spot market.",
     "coingecko": "**Powered by [CoinGecko](https://www.coingecko.com)**",
     "ecb": (
         "Source: [European Central Bank](https://data.ecb.europa.eu). ECB reference rates "
@@ -36,6 +39,18 @@ ATTRIBUTION = {
         "**This product uses the FRED® API but is not endorsed or certified by the Federal "
         "Reserve Bank of St. Louis.** Underlying data: US Treasury, Federal Reserve Board, "
         "BLS, BEA, via [FRED](https://fred.stlouisfed.org)."
+    ),
+    # The notice the New York Fed's Terms of Use require for reference rates.
+    "nyfed": (
+        "SOFR, EFFR and OBFR are subject to the [Terms of Use](https://www.newyorkfed.org/"
+        "privacy/termsofuse.html) posted at newyorkfed.org. The New York Fed is not responsible "
+        "for publication of these rates by this platform, does not sanction or endorse any "
+        "particular republication, and has no liability for your use. SOFR is calculated using "
+        "data provided under a license granted to the New York Fed by DTCC Solutions LLC."
+    ),
+    "us_treasury": (
+        "Source: [U.S. Department of the Treasury](https://home.treasury.gov), "
+        "Daily Treasury Par Yield Curve Rates."
     ),
 }
 
@@ -329,7 +344,7 @@ def global_overview() -> dict[str, Any]:
         "Global Market Overview",
         "Latest values across every asset class, relative performance and data freshness.",
         [
-            attribution("twelve_data", "coingecko", "ecb", "fred"),
+            attribution("twelve_data", "coingecko", "binance", "ecb", "nyfed", "us_treasury", "fred"),
             panel(
                 "stat",
                 "Key values",
@@ -338,7 +353,7 @@ def global_overview() -> dict[str, Any]:
                         f"""
                         SELECT observed_at AS "time", symbol || ' · ' || provider AS metric, value
                           FROM v_latest_observation
-                         WHERE symbol IN ('BTC/USD', 'EUR/USD', 'ESTR', 'ECB-DFR', 'US10Y', 'SPY')
+                         WHERE symbol IN ('BTC/USD', 'EUR/USD', 'XAU/USD', 'ESTR', 'SOFR', 'US10Y', 'SPY')
                            AND observation_type IN {PRICE_LIKE}
                          ORDER BY 1
                         """,
@@ -500,7 +515,7 @@ def crypto() -> dict[str, Any]:
         "Cryptocurrency Market",
         "Prices, market capitalization, volume, supply and dominance of the tracked coins.",
         [
-            attribution("coingecko"),
+            attribution("coingecko", "binance"),
             table(
                 "Market overview",
                 f"""
@@ -521,7 +536,11 @@ def crypto() -> dict[str, Any]:
                  ORDER BY "Market cap" DESC NULLS LAST
                 """,
                 height=10,
-                description="Prices are averages across exchanges, served with a delay of 1 to 5 minutes.",
+                description=(
+                    "CoinGecko prices are averages across exchanges, served with a delay of 1 to 5 "
+                    "minutes, in US dollars. Binance prices are the last trade on Binance, in Tether "
+                    "(USDT), and are separate instruments."
+                ),
                 overrides=[
                     override("Market cap", unit="short", decimals=2),
                     override("Volume", unit="short", decimals=2),
@@ -598,7 +617,10 @@ def crypto() -> dict[str, Any]:
                 "asset_type = 'crypto'",
                 warn=15 * 60,
                 crit=60 * 60,
-                description="Prices are collected every 5 minutes, dominance every 2 hours.",
+                description=(
+                    "CoinGecko prices are collected every 5 minutes, dominance every 2 hours; "
+                    "Binance prices every minute."
+                ),
             ),
         ],
         variables=[
@@ -633,7 +655,7 @@ def forex() -> dict[str, Any]:
                 "asset_type = 'forex'",
                 warn=3 * 3600,
                 crit=3 * 86400,
-                description="Market rates are collected every 15 minutes; ECB rates once a day.",
+                description="Market rates are collected every 30 minutes; ECB rates once a day.",
             ),
         ],
         variables=[
@@ -648,7 +670,11 @@ def forex() -> dict[str, Any]:
 
 
 def bond_yields() -> dict[str, Any]:
-    where = "asset_type = 'government_bond_yield' AND observation_type = 'yield'"
+    curve = (
+        "asset_type = 'government_bond_yield' AND observation_type = 'yield'"
+        " AND instrument_metadata->>'curve' = ${curve:sqlstring}"
+    )
+    where = f"{curve} AND provider = ${{source:sqlstring}}"
     maturity_months = (
         "CASE right(instrument_metadata->>'maturity', 1) "
         "WHEN 'M' THEN left(instrument_metadata->>'maturity', -1)::int "
@@ -657,10 +683,10 @@ def bond_yields() -> dict[str, Any]:
     return dashboard(
         "government-bond-yields",
         "Government Bond Yields",
-        "Government benchmark yields, in percent. US Treasury yields come from FRED, "
-        "which is disabled until its key and terms are settled.",
+        "Government benchmark yields, in percent: the US Treasury par yield curve and the "
+        "ECB's euro area yield curves. Choose a curve and the provider to read it from.",
         [
-            attribution("fred"),
+            attribution("us_treasury", "ecb", "fred"),
             panel(
                 "barchart",
                 "Yield curve",
@@ -671,7 +697,6 @@ def bond_yields() -> dict[str, Any]:
                                value AS "Yield"
                           FROM v_latest_observation
                          WHERE {where}
-                           AND instrument_metadata->>'country' = ${{country:sqlstring}}
                          ORDER BY {maturity_months}
                         """
                     )
@@ -680,41 +705,40 @@ def bond_yields() -> dict[str, Any]:
                 height=9,
                 unit="percent",
                 decimals=2,
-                description="Latest yield by maturity.",
+                description="Latest yield by maturity, from the chosen provider.",
                 options={"xField": "Maturity", "orientation": "vertical", "showValue": "always"},
             ),
-            latest_table(
-                "Latest yields",
-                f"{where} AND instrument_metadata->>'country' = ${{country:sqlstring}}",
-                "Yield",
-                width=14,
-                height=9,
-            ),
-            series_chart(
-                "Yields",
-                f"{where} AND instrument_metadata->>'country' = ${{country:sqlstring}}",
-                unit="percent",
-                decimals=2,
-                height=10,
-            ),
+            latest_table("Latest yields", curve, "Yield", width=14, height=9),
+            series_chart("Yields", where, unit="percent", decimals=2, height=10),
             freshness(
                 "Data freshness",
                 "asset_type = 'government_bond_yield'",
                 warn=3 * 86400,
                 crit=5 * 86400,
-                description="Yields are published daily with a lag of one business day.",
+                description="Yields are published each business day, after the close.",
             ),
         ],
         variables=[
             variable(
-                "country",
-                "Country",
+                "curve",
+                "Curve",
                 """
-                SELECT DISTINCT metadata->>'country' FROM instrument
+                SELECT DISTINCT metadata->>'curve' FROM instrument
                  WHERE asset_type = 'government_bond_yield' ORDER BY 1
                 """,
                 multi=False,
-            )
+            ),
+            variable(
+                "source",
+                "Provider",
+                """
+                SELECT DISTINCT provider FROM v_latest_observation
+                 WHERE asset_type = 'government_bond_yield'
+                   AND instrument_metadata->>'curve' = ${curve:sqlstring}
+                 ORDER BY 1 DESC
+                """,
+                multi=False,
+            ),
         ],
         time_from="now-1y",
         refresh="1h",
@@ -728,7 +752,7 @@ def interest_rates() -> dict[str, Any]:
         "Interest Rates",
         "Money-market and central bank rates, in percent.",
         [
-            attribution("ecb", "fred"),
+            attribution("ecb", "nyfed", "fred"),
             latest_table("Latest rates", where, "Rate", height=8, decimals=3),
             series_chart(
                 "Rates",
@@ -748,8 +772,8 @@ def interest_rates() -> dict[str, Any]:
                 warn=4 * 86400,
                 crit=7 * 86400,
                 description=(
-                    "€STR is daily. Policy rates only change at central bank decisions, so their "
-                    "age is expected to be large."
+                    "€STR, SOFR, EFFR and OBFR are published each business day. Policy rates only "
+                    "change at central bank decisions, so their age is expected to be large."
                 ),
             ),
         ],
@@ -762,6 +786,74 @@ def interest_rates() -> dict[str, Any]:
         ],
         time_from="now-2y",
         refresh="1h",
+    )
+
+
+def commodities() -> dict[str, Any]:
+    where = "asset_type = 'commodity' AND symbol IN (${commodity:sqlstring})"
+    return dashboard(
+        "commodities",
+        "Commodities",
+        "Spot commodity prices and daily candles.",
+        [
+            attribution("twelve_data"),
+            text(
+                "Coverage",
+                "Spot gold (XAU/USD) is the only commodity on Twelve Data's free plan. Silver, "
+                "crude oil and natural gas need a paid plan; free government sources republish "
+                "oil and gas prices under third-party licences, so they are not collected.",
+                height=4,
+            ),
+            latest_table(
+                "Latest prices",
+                f"{where} AND observation_type = 'price'",
+                "Price",
+                height=5,
+                description="Spot prices are indicative over-the-counter quotes, per troy ounce for metals.",
+            ),
+            series_chart("Price", f"{where} AND observation_type = 'price'", width=12, height=10),
+            panel(
+                "candlestick",
+                "Daily candles: $candle_commodity",
+                [
+                    target(
+                        """
+                        SELECT timestamp AS "time", open, high, low, close
+                          FROM v_candle
+                         WHERE asset_type = 'commodity' AND interval = '1day'
+                           AND symbol = ${candle_commodity:sqlstring}
+                           AND $__timeFilter(timestamp)
+                         ORDER BY 1
+                        """
+                    )
+                ],
+                width=12,
+                height=10,
+                description="Closed daily candles, dated by the day they open (UTC).",
+                options={"mode": "candles", "candleStyle": "candles", "colorStrategy": "open-close"},
+            ),
+            freshness(
+                "Data freshness",
+                "asset_type = 'commodity'",
+                warn=3 * 3600,
+                crit=3 * 86400,
+                description="Prices are collected every 30 minutes; spot markets close at weekends.",
+            ),
+        ],
+        variables=[
+            variable(
+                "commodity",
+                "Commodities",
+                "SELECT DISTINCT symbol FROM v_latest_observation WHERE asset_type = 'commodity' ORDER BY 1",
+            ),
+            variable(
+                "candle_commodity",
+                "Candles for",
+                "SELECT DISTINCT symbol FROM v_latest_observation WHERE asset_type = 'commodity' ORDER BY 1",
+                multi=False,
+            ),
+        ],
+        time_from="now-90d",
     )
 
 
@@ -967,6 +1059,7 @@ def all_dashboards() -> list[dict[str, Any]]:
         forex(),
         bond_yields(),
         interest_rates(),
+        commodities(),
         indicators(),
         collector_monitoring(),
     ]

@@ -48,7 +48,7 @@ uvicorn  ->  FastAPI app (app/main.py: create_app)
 | `app/services/read_api.py` | Defaults, validation and response shaping for the read endpoints. |
 | `app/repositories/read_queries.py` | The queries behind the read endpoints. |
 | `app/schemas/api.py` | Response models. |
-| `app/providers/twelve_data.py`, `coingecko.py`, `ecb.py`, `fred.py` | Provider adapters. |
+| `app/providers/twelve_data.py`, `coingecko.py`, `binance.py`, `ecb.py`, `nyfed.py`, `us_treasury.py`, `fred.py` | Provider adapters. |
 | `app/cli.py` | Administrative commands: `seed`, `search`, `collect`, `jobs`, `run`, `reader-role`. |
 | `migrations/` | Alembic environment and revisions. |
 
@@ -145,7 +145,7 @@ Time-series reads take `start` and `end`, return rows with `start <= time < end`
 
 ## Provider Framework
 
-This is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md). Integrated so far: [Twelve Data](providers/twelve_data.md), [CoinGecko](providers/coingecko.md), the [ECB](providers/ecb.md) and [FRED](providers/fred.md).
+This is the machinery each adapter is built on. The rules for writing one are in [providers/README.md](providers/README.md). Integrated so far: [Twelve Data](providers/twelve_data.md), [CoinGecko](providers/coingecko.md), [Binance](providers/binance.md), the [ECB](providers/ecb.md), the [New York Fed](providers/nyfed.md), the [US Treasury](providers/us_treasury.md) and [FRED](providers/fred.md).
 
 ```text
 ProviderFactory.build(provider row)
@@ -278,7 +278,7 @@ Holidays are not modelled: on an exchange holiday, a market-hours job polls and 
 
 Before the seed file is applied, `services/budget.py` adds up the planned use of every enabled job and compares it with each limit of its provider (PRD FR-011). An over-budget configuration is refused with a message naming the provider, the limit and each job's share, and nothing is written. Because the `migrate` service applies the seed, the stack does not start.
 
-- **Credits per run:** each adapter's `planned_credits`. Twelve Data charges per symbol, CoinGecko per batched request plus one for dominance, and the ECB per dataflow.
+- **Credits per run:** each adapter's `planned_credits`. Twelve Data charges per symbol, CoinGecko per batched request plus one for dominance, the ECB per dataflow, Binance by request weight, and the US Treasury two feed requests per run.
 - **Runs per day:** counted on a trading day, both in winter and summer time, taking the larger. A job with a retry counts double.
 - **Periods:** a month counts 31 days. Limits shorter than a day are compared with the average use; bursts within a minute are paced by the rate limiter at run time.
 
@@ -384,7 +384,7 @@ Running after migrations means new tables and views are covered. Identifiers and
 
 ### Dashboards
 
-`scripts/build_dashboards.py` builds the nine dashboards from shared panel definitions:
+`scripts/build_dashboards.py` builds the ten dashboards from shared panel definitions:
 
 - a latest-values table;
 - series charts, with one line per instrument and provider;
